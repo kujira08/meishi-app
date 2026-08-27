@@ -8,7 +8,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@700&family=Noto+Sans+JP:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <style>
 :root{
   --washi:#F6F1E4; --paper:#FCFAF3;
@@ -294,10 +293,10 @@ button{cursor:pointer}
       <button class="shot" id="shot-box" type="button">
         <span class="shot-icon" aria-hidden="true">📷</span>
         <strong>名刺を撮影する</strong>
-        <span class="sub">タップしてカメラを起動／写真を選ぶ</span>
+        <span class="sub">撮るだけで項目が埋まります</span>
       </button>
       <button class="alt-btn" id="scan-btn" type="button">⌨️ 文字を読み取って貼り付ける
-        <small>iPhoneの「テキストをスキャン」を使う。撮影より正確です</small></button>
+        <small>電波が無いときの予備。iPhoneの「テキストをスキャン」を使う</small></button>
       <button class="manual-link" id="manual-btn" type="button">写真なしで手入力する</button>
     </div>
     <div id="scan-area" hidden>
@@ -706,33 +705,26 @@ function toThumb(bmp){
   c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
   return c.toDataURL('image/jpeg', 0.62);
 }
-// OCR用：拡大 → グレースケール → コントラストを引き伸ばす
-function preprocess(bmp){
-  const long = Math.max(bmp.width, bmp.height);
-  const s = Math.min(2.5, Math.max(1, 1800 / long));
-  const w = Math.round(bmp.width * s), h = Math.round(bmp.height * s);
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  const g = c.getContext('2d', {willReadFrequently:true});
-  g.drawImage(bmp, 0, 0, w, h);
-  const im = g.getImageData(0, 0, w, h), d = im.data;
-  const hist = new Uint32Array(256);
-  for (let i = 0; i < d.length; i += 4){
-    const v = (d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114) | 0;
-    d[i] = d[i+1] = d[i+2] = v; hist[v]++;
+const API_URL = 'https://script.google.com/macros/s/AKfycbyAKMCDG-98LtOLeoxmbwlWr4UrekI3auKxbOT0-WhMSPSKxJGfPOvK_srkSF4hkzGJ3w/exec';
+const PASS_KEY = 'meishi_passcode';
+
+function getPasscode(){
+  let p = '';
+  try { p = localStorage.getItem(PASS_KEY) || ''; } catch(e){}
+  if (!p){
+    p = (window.prompt('初回だけ合言葉を入力してください') || '').trim();
+    if (p){ try { localStorage.setItem(PASS_KEY, p); } catch(e){} }
   }
-  const total = w * h;
-  let lo = 0, hi = 255, acc = 0;
-  for (let i = 0; i < 256; i++){ acc += hist[i]; if (acc > total*0.02){ lo = i; break; } }
-  acc = 0;
-  for (let i = 255; i >= 0; i--){ acc += hist[i]; if (acc > total*0.02){ hi = i; break; } }
-  const range = Math.max(1, hi - lo);
-  for (let i = 0; i < d.length; i += 4){
-    let v = (d[i] - lo) * 255 / range;
-    v = v < 0 ? 0 : v > 255 ? 255 : v;
-    d[i] = d[i+1] = d[i+2] = v;
-  }
-  g.putImageData(im, 0, 0);
-  return c;
+  return p;
+}
+// 読み取りに送る画像（長辺1400pxのJPEG）
+function toUpload(bmp){
+  const s = Math.min(1, 1400 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(bmp.width * s));
+  c.height = Math.max(1, Math.round(bmp.height * s));
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.72).split(',')[1];
 }
 
 $('#file').addEventListener('change', async e => {
@@ -761,7 +753,7 @@ $('#file').addEventListener('change', async e => {
     return;
   }
 
-  // 「写真も残す」から来たときは文字認識をせず、画像を添えるだけ
+  // 「写真も残す」から来たときは読み取らず、画像を添えるだけ
   if (skipOcr){
     skipOcr = false;
     bar.hidden = true;
@@ -770,45 +762,54 @@ $('#file').addEventListener('change', async e => {
     return;
   }
 
+  const passcode = getPasscode();
+  if (!passcode){
+    bar.classList.add('error');
+    $('#ocr-spin').hidden = true;
+    $('#ocr-msg').textContent = '合言葉が未入力です。手入力で登録してください。';
+    $('#fields').hidden = false;
+    return;
+  }
+
+  $('#ocr-msg').textContent = '名刺を読み取っています…';
   try {
-    if (typeof Tesseract === 'undefined') throw new Error('tesseract未読込');
-    $('#ocr-msg').textContent = '文字認識の準備をしています…';
-    const opts = () => ({
-      logger: m => {
-        const p = Math.round((m.progress || 0) * 100) + '%';
-        if (m.status === 'recognizing text'){ $('#ocr-msg').textContent = '読み取っています…'; $('#ocr-pct').textContent = p; }
-        else if (/loading language|downloading/i.test(m.status)){ $('#ocr-msg').textContent = '日本語データを取得中（初回のみ）'; $('#ocr-pct').textContent = p; }
-        else if (/loading tesseract|initializ/i.test(m.status)){ $('#ocr-msg').textContent = '文字認識の準備をしています…'; $('#ocr-pct').textContent = p; }
-      }
+    // text/plain で送ると事前確認(preflight)が起きずGASに直接届く
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ passcode, mime: 'image/jpeg', image: toUpload(bmp) })
     });
-    const canvas = preprocess(bmp);
-    // jpn 単体の方が精度が高い（jpn+eng だと漢字が英字に化ける）。メール・電話・URLは jpn でも読める
-    let worker = await Tesseract.createWorker('jpn', 1, opts());
-    let res = await worker.recognize(canvas);
-    await worker.terminate();
-    let text = (res.data && res.data.text || '').trim();
-    // 日本語がほとんど無い＝英文名刺。英語モデルで読み直す
-    if ((text.match(/[぀-ヿ一-鿿]/g) || []).length < 4){
-      $('#ocr-msg').textContent = '英語の名刺として読み直しています…';
-      worker = await Tesseract.createWorker('eng', 1, opts());
-      res = await worker.recognize(canvas);
-      await worker.terminate();
-      const t2 = (res.data && res.data.text || '').trim();
-      if (t2.length > text.length) text = t2;
-    }
-    if (!text) throw new Error('文字が取れなかった');
-    applyOcr(text);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || '読み取りに失敗しました');
+    fillFields(data.fields);
     $('#ocr-spin').hidden = true;
     $('#ocr-msg').textContent = '読み取りました。内容を確認してください。';
-    $('#ocr-pct').textContent = '100%';
+    $('#ocr-pct').textContent = '';
   } catch(err){
     bar.classList.add('error');
     $('#ocr-spin').hidden = true;
-    $('#ocr-msg').textContent = '読み取れませんでした。手入力で登録してください。';
-    $('#ocr-pct').textContent = '';
+    $('#ocr-msg').textContent = String(err.message || err) + '（手入力か、⌨️の読み取りをお使いください）';
   }
   $('#fields').hidden = false;
 });
+
+// APIが返した項目をフォームに入れる
+function fillFields(f){
+  if (!f) return;
+  const put = (id, v) => { if (v && !$('#'+id).value) $('#'+id).value = String(v).trim(); };
+  put('f-name', f.name);
+  put('f-title', [f.department, f.title].filter(Boolean).join(' '));
+  put('f-company', f.company);
+  put('f-tel', f.tel || f.mobile);
+  put('f-email', f.email);
+  put('f-address', f.address);
+  const extra = [];
+  if (f.fax) extra.push('FAX ' + f.fax);
+  if (f.mobile && f.tel) extra.push('携帯 ' + f.mobile);
+  if (f.url) extra.push(f.url);
+  if (f.kana) extra.push('よみ: ' + f.kana);
+  if (extra.length && !$('#f-memo').value) $('#f-memo').value = extra.join('\n');
+}
 
 const RE = {
   email: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/,
@@ -822,7 +823,7 @@ const RE = {
   junk:  /[<>_\\\/&|~^*"'`\[\]{}=+±§×]/g,
   kana2: /[、。・ヽヾゝゞ〃]/
 };
-// Tesseract は日本語の字間に空白を入れる（「株 式 会 社」）。漢字・かなに挟まれた空白だけ詰める
+// 端末OCRによっては日本語の字間に空白が入る（「株 式 会 社」）。漢字・かなに挟まれた空白だけ詰める
 function compact(s){
   let out = '';
   for (let i = 0; i < s.length; i++){
@@ -844,7 +845,7 @@ function tidyAddress(s){
 function junkRatio(s){ return ((s.match(RE.junk) || []).length) / Math.max(1, s.length); }
 
 function applyOcr(text, useCompact){
-  if (useCompact === undefined) useCompact = true;   // Tesseractの出力は字間の空白を詰める
+  if (useCompact === undefined) useCompact = true;   // 字間に空白が入る出力向け
   const lines = text.split(/\r?\n/)
     .map(l => useCompact ? compact(l) : l.replace(/[\s　]+/g, ' ').trim())
     .filter(Boolean);
