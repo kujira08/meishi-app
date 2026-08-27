@@ -131,6 +131,9 @@ button{cursor:pointer}
 }
 .alt-btn:active{opacity:.85}
 .alt-btn small{display:block;font-size:11.5px;font-weight:400;color:var(--indigo);margin-top:2px}
+.sides-note{
+  margin:8px 0 0;font-size:12px;color:var(--sumi-soft);text-align:center;
+}
 .qr-note{
   margin-top:10px;padding:11px 13px;border-radius:var(--radius-sm);
   background:var(--indigo-pale);border:1px solid var(--indigo-mid);
@@ -323,6 +326,12 @@ button{cursor:pointer}
     <div id="preview-area" hidden>
       <img class="preview" id="preview" alt="撮影した名刺">
       <button class="retake" id="retake" type="button">撮り直す</button>
+      <div id="side-choice" hidden>
+        <button class="scan-run" id="go-read" type="button">この1枚で読み取る</button>
+        <button class="alt-btn" id="add-back" type="button">📄 裏面も撮る
+          <small>2枚まとめて読むので、別々に撮るより安く正確です</small></button>
+      </div>
+      <p class="sides-note" id="sides-note" hidden></p>
     </div>
     <button class="retake" id="attach-photo" type="button" hidden>📷 名刺の写真も残す</button>
     <input type="file" id="file" accept="image/*" capture="environment" hidden>
@@ -578,6 +587,10 @@ function resetForm(){
   $('#scan-area').hidden = true;
   $('#scan-text').value = '';
   $('#qr-note').hidden = true;
+  $('#side-choice').hidden = true;
+  $('#sides-note').hidden = true;
+  shots = [];
+  qrAll = null;
   $('#attach-photo').hidden = true;
   pendingImage = '';
   skipOcr = false;
@@ -650,7 +663,11 @@ $('#manual-btn').addEventListener('click', () => {
 $('#form-back').addEventListener('click', () => history.back());
 $('#detail-back').addEventListener('click', () => history.back());
 $('#shot-box').addEventListener('click', () => $('#file').click());
-$('#retake').addEventListener('click', () => $('#file').click());
+$('#retake').addEventListener('click', () => {
+  shots = []; qrAll = null;
+  $('#qr-note').hidden = true; $('#side-choice').hidden = true; $('#sides-note').hidden = true;
+  $('#file').click();
+});
 
 $('#btn-save').addEventListener('click', () => {
   const name = $('#f-name').value.trim();
@@ -846,8 +863,12 @@ function toUpload(bmp){
   return c.toDataURL('image/jpeg', 0.72).split(',')[1];
 }
 
+let shots = [];      // 送る画像（表・裏）
+let qrAll = null;    // 表裏から読めたQRの内容
+
 $('#file').addEventListener('change', async e => {
   const file = e.target.files && e.target.files[0];
+  e.target.value = '';                       // 同じ写真を選び直せるように
   if (!file) return;
 
   const bar = $('#ocr-bar');
@@ -859,10 +880,6 @@ $('#file').addEventListener('change', async e => {
   let bmp;
   try {
     bmp = await loadBitmap(file);
-    pendingImage = toThumb(bmp);
-    $('#preview').src = pendingImage;
-    $('#preview-area').hidden = false;
-    $('#shot-area').hidden = true;
   } catch(err){
     bar.classList.add('error');
     $('#ocr-spin').hidden = true;
@@ -875,56 +892,97 @@ $('#file').addEventListener('change', async e => {
   // 「写真も残す」から来たときは読み取らず、画像を添えるだけ
   if (skipOcr){
     skipOcr = false;
+    pendingImage = toThumb(bmp);
+    $('#preview').src = pendingImage;
+    $('#preview-area').hidden = false; $('#shot-area').hidden = true;
     bar.hidden = true;
     $('#attach-photo').hidden = true;
     $('#fields').hidden = false;
     return;
   }
 
+  if (shots.length === 0){
+    pendingImage = toThumb(bmp);             // 保存する画像は表面
+    $('#preview').src = pendingImage;
+    $('#preview-area').hidden = false;
+    $('#shot-area').hidden = true;
+  }
+  shots.push({ mime: 'image/jpeg', data: toUpload(bmp) });
+
+  // QRは表にも裏にもあり得るので、撮るたびに読む
+  try {
+    const q = parseQr(readQr(bmp));
+    if (q) qrAll = Object.assign(qrAll || {}, q);
+  } catch(err){}
+
+  if (qrAll){
+    const note = $('#qr-note');
+    note.innerHTML = '📱 <b>QRコードを読み取りました</b>（' + Object.keys(qrAll).length + '項目）。この内容を優先します。';
+    note.hidden = false;
+  }
+
+  if (shots.length === 1){
+    // 裏面を撮るか、この1枚で読むかを選んでもらう
+    bar.hidden = true;
+    $('#side-choice').hidden = false;
+    $('#sides-note').hidden = true;
+    return;
+  }
+
+  $('#side-choice').hidden = true;
+  $('#sides-note').textContent = '表・裏の2枚を1回で読み取ります';
+  $('#sides-note').hidden = false;
+  runExtraction();
+});
+
+$('#go-read').addEventListener('click', () => {
+  $('#side-choice').hidden = true;
+  runExtraction();
+});
+$('#add-back').addEventListener('click', () => {
+  $('#side-choice').hidden = true;
+  $('#file').click();
+});
+
+// ためた画像をまとめてGAS経由でClaudeに送る
+async function runExtraction(){
+  if (!shots.length) return;
+  const bar = $('#ocr-bar');
   const passcode = getPasscode();
   if (!passcode){
-    bar.classList.add('error');
+    bar.hidden = false; bar.classList.add('error');
     $('#ocr-spin').hidden = true;
     $('#ocr-msg').textContent = '合言葉が未入力です。手入力で登録してください。';
     $('#fields').hidden = false;
     return;
   }
 
-  // 先に端末側でQRを解読しておく（費用ゼロ・OCRより確実）
-  let qr = null;
-  try { qr = parseQr(readQr(bmp)); } catch(e){}
-  const note = $('#qr-note');
-  if (qr){
-    const got = Object.keys(qr).length;
-    note.innerHTML = '📱 <b>QRコードを読み取りました</b>（' + got + '項目）。この内容を優先します。';
-    note.hidden = false;
-  } else {
-    note.hidden = true;
-  }
+  bar.hidden = false; bar.classList.remove('error');
+  $('#ocr-spin').hidden = false;
+  $('#ocr-msg').textContent = shots.length > 1 ? '両面を読み取っています…' : '名刺を読み取っています…';
+  $('#ocr-pct').textContent = '';
 
-  $('#ocr-msg').textContent = '名刺を読み取っています…';
   try {
     // text/plain で送ると事前確認(preflight)が起きずGASに直接届く
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ passcode, mime: 'image/jpeg', image: toUpload(bmp) })
+      body: JSON.stringify({ passcode, images: shots })
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || '読み取りに失敗しました');
-    fillFields(Object.assign({}, data.fields, qr || {}));   // QRの項目で上書き＝QR優先
+    fillFields(Object.assign({}, data.fields, qrAll || {}));   // QRの項目で上書き＝QR優先
     $('#ocr-spin').hidden = true;
     $('#ocr-msg').textContent = '読み取りました。内容を確認してください。';
-    $('#ocr-pct').textContent = '';
   } catch(err){
-    if (qr) fillFields(qr);                                  // 読み取り失敗でもQR分は入れる
+    if (qrAll) fillFields(qrAll);                              // 読み取り失敗でもQR分は入れる
     bar.classList.add('error');
     $('#ocr-spin').hidden = true;
     $('#ocr-msg').textContent = String(err.message || err)
-      + (qr ? '（QRの分だけ入力しました）' : '（手入力か、⌨️の読み取りをお使いください）');
+      + (qrAll ? '（QRの分だけ入力しました）' : '（手入力か、⌨️の読み取りをお使いください）');
   }
   $('#fields').hidden = false;
-});
+}
 
 // APIが返した項目をフォームに入れる
 function fillFields(f){
