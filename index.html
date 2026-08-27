@@ -124,13 +124,19 @@ button{cursor:pointer}
 .shot-icon{font-size:30px;display:block;margin-bottom:8px}
 .shot strong{display:block;font-size:15px;color:var(--sumi);font-weight:500;margin-bottom:3px}
 .shot span.sub{font-size:12.5px}
-.alt-btn{
-  display:block;width:100%;margin-top:10px;padding:14px 16px;min-height:52px;
-  background:var(--indigo-pale);border:1px solid var(--indigo-mid);border-radius:var(--radius-sm);
-  color:var(--indigo-deep);font-size:14.5px;font-weight:500;
+.read-now{
+  display:block;width:100%;margin-top:10px;padding:14px;min-height:52px;
+  background:var(--indigo-deep);border:1px solid var(--indigo-deep);border-radius:var(--radius-sm);
+  color:#fff;font-size:15.5px;font-weight:500;letter-spacing:.03em;
 }
-.alt-btn:active{opacity:.85}
-.alt-btn small{display:block;font-size:11.5px;font-weight:400;color:var(--indigo);margin-top:2px}
+.read-now:active{transform:scale(.99);opacity:.9}
+.add-back{
+  display:block;width:100%;margin-top:9px;padding:13px 16px;min-height:48px;
+  background:var(--indigo-pale);border:1px solid var(--indigo-mid);border-radius:var(--radius-sm);
+  color:var(--indigo-deep);font-size:14px;font-weight:500;
+}
+.add-back small{display:block;font-size:11.5px;font-weight:400;color:var(--indigo);margin-top:2px}
+.add-back:active{opacity:.85}
 .sides-note{
   margin:8px 0 0;font-size:12px;color:var(--sumi-soft);text-align:center;
 }
@@ -140,20 +146,6 @@ button{cursor:pointer}
   color:var(--indigo-deep);font-size:13px;line-height:1.7;
 }
 .qr-note b{font-weight:700}
-.scan-guide{background:var(--paper);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px}
-.scan-guide h4{font-family:var(--display);font-size:14px;color:var(--indigo-deep);margin:0 0 8px;letter-spacing:.06em}
-.scan-guide ol{margin:0;padding-left:1.3em;font-size:13.5px;line-height:1.9;color:var(--sumi)}
-.scan-guide .note{font-size:11.5px;color:var(--sumi-soft);margin:9px 0 0;line-height:1.7}
-#scan-text{
-  width:100%;margin-top:12px;padding:12px;min-height:150px;line-height:1.8;
-  background:var(--paper);border:1px solid var(--border);border-radius:var(--radius-sm);resize:vertical;
-}
-#scan-text::placeholder{color:var(--sumi-faint)}
-.scan-run{
-  display:block;width:100%;margin-top:10px;padding:13px;min-height:48px;
-  background:var(--indigo-deep);border:1px solid var(--indigo-deep);border-radius:var(--radius-sm);
-  color:#fff;font-size:15px;font-weight:500;
-}
 .manual-link{
   display:block;width:100%;margin-top:12px;padding:12px;min-height:44px;
   background:none;border:none;color:var(--indigo);font-size:13.5px;
@@ -305,30 +297,14 @@ button{cursor:pointer}
         <strong>名刺を撮影する</strong>
         <span class="sub">撮るだけで項目が埋まります</span>
       </button>
-      <button class="alt-btn" id="scan-btn" type="button">⌨️ 文字を読み取って貼り付ける
-        <small>電波が無いときの予備。iPhoneの「テキストをスキャン」を使う</small></button>
       <button class="manual-link" id="manual-btn" type="button">写真なしで手入力する</button>
-    </div>
-    <div id="scan-area" hidden>
-      <div class="scan-guide">
-        <h4>iPhoneでの読み取り方</h4>
-        <ol>
-          <li>下の枠を<b>長押し</b>する</li>
-          <li>メニューの<b>「テキストをスキャン」</b>を選ぶ</li>
-          <li>名刺にカメラを向ける → 文字が入ります</li>
-        </ol>
-        <p class="note">読み取りはiPhoneの中だけで行われます。うまく入らない文字は、そのまま手で直せます。</p>
-      </div>
-      <textarea id="scan-text" placeholder="ここを長押し →「テキストをスキャン」"></textarea>
-      <button class="scan-run" id="scan-run" type="button">この内容で振り分ける</button>
-      <button class="manual-link" id="scan-cancel" type="button">戻る</button>
     </div>
     <div id="preview-area" hidden>
       <img class="preview" id="preview" alt="撮影した名刺">
       <button class="retake" id="retake" type="button">撮り直す</button>
       <div id="side-choice" hidden>
-        <button class="scan-run" id="go-read" type="button">この1枚で読み取る</button>
-        <button class="alt-btn" id="add-back" type="button">📄 裏面も撮る
+        <button class="read-now" id="go-read" type="button">この1枚で読み取る</button>
+        <button class="add-back" id="add-back" type="button">📄 裏面も撮る
           <small>2枚まとめて読むので、別々に撮るより安く正確です</small></button>
       </div>
       <p class="sides-note" id="sides-note" hidden></p>
@@ -584,8 +560,6 @@ function resetForm(){
   $('#shot-area').hidden = false;
   $('#ocr-bar').hidden = true;
   $('#file').value = '';
-  $('#scan-area').hidden = true;
-  $('#scan-text').value = '';
   $('#qr-note').hidden = true;
   $('#side-choice').hidden = true;
   $('#sides-note').hidden = true;
@@ -635,25 +609,6 @@ function paintForm(id, manual){
   }
 }
 $('#fab').addEventListener('click', () => go({v:'form', id:null}));
-// iPhoneの「テキストをスキャン」で読み取ったテキストを振り分ける
-$('#scan-btn').addEventListener('click', () => {
-  $('#shot-area').hidden = true;
-  $('#scan-area').hidden = false;
-  $('#scan-text').focus();
-});
-$('#scan-cancel').addEventListener('click', () => {
-  $('#scan-area').hidden = true;
-  $('#shot-area').hidden = false;
-});
-$('#scan-run').addEventListener('click', () => {
-  const t = $('#scan-text').value.trim();
-  if (!t){ $('#scan-text').focus(); return; }
-  applyOcr(t, false);            // 端末のOCRは字間に空白を入れないので詰めない
-  $('#scan-area').hidden = true;
-  $('#fields').hidden = false;
-  $('#attach-photo').hidden = !!pendingImage;
-  $('#f-name').scrollIntoView({behavior:'smooth', block:'center'});
-});
 $('#attach-photo').addEventListener('click', () => { skipOcr = true; $('#file').click(); });
 $('#manual-btn').addEventListener('click', () => {
   $('#fields').hidden = false;
@@ -1000,111 +955,6 @@ function fillFields(f){
   if (f.mobile && f.tel) extra.push('携帯 ' + f.mobile);
   if (f.kana) extra.push('よみ: ' + f.kana);
   if (extra.length && !$('#f-memo').value) $('#f-memo').value = extra.join('\n');
-}
-
-const RE = {
-  email: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/,
-  tel:   /(?:\+81[-\s]?)?0\d{1,4}[-‐−ー－(\s]?\d{1,4}[-‐−ー－)\s]?\d{3,4}/,
-  telIntl: /\+\d{1,3}[\s.\-()]*\d[\d\s.\-()]{5,16}\d/,   // +1 503-555-0142 のような国際表記
-  url:   /(https?:\/\/|www\.)/i,
-  corp:  /(株式会社|有限会社|合同会社|合資会社|\(株\)|（株）|\(有\)|（有）|Co\.,?\s*Ltd|Inc\.?|Corporation|Corp\.?|工房|商店|美術館|博物館|ギャラリー|組合|事務所|工業|製作所)/i,
-  post:  /(代表取締役|取締役|代表社員|会長|社長|専務|常務|部長|次長|課長|係長|主任|店長|室長|館長|学芸員|バイヤー|マネージャー|ディレクター|プロデューサー|デザイナー|営業|企画|代表)/,
-  addr:  /(都|道|府|県).{0,12}(市|区|郡|町|村)/,
-  cjk:   /[぀-ヿ一-鿿々〆ヵヶー]/,
-  junk:  /[<>_\\\/&|~^*"'`\[\]{}=+±§×]/g,
-  kana2: /[、。・ヽヾゝゞ〃]/
-};
-// 端末OCRによっては日本語の字間に空白が入る（「株 式 会 社」）。漢字・かなに挟まれた空白だけ詰める
-function compact(s){
-  let out = '';
-  for (let i = 0; i < s.length; i++){
-    const ch = s[i];
-    if (/[\s　]/.test(ch) && RE.cjk.test(s[i-1] || '') && RE.cjk.test(s[i+1] || '')) continue;
-    out += ch;
-  }
-  return out.replace(/[\s　]+/g, ' ').trim();
-}
-function stripEdgeJunk(s){
-  return s.replace(/^[^぀-ヿ一-鿿々〆]+/, '').replace(/[^぀-ヿ一-鿿々〆ー]+$/, '').trim();
-}
-// 住所は日本語と数字の間の空白を詰める（郵便番号のあとだけ空ける）
-function tidyAddress(s){
-  const m = s.match(/^(〒\d{3}-\d{4})\s*(.*)$/);
-  const body = (m ? m[2] : s).replace(/([぀-ヿ一-鿿々〆ー\d])[\s　]+(?=[぀-ヿ一-鿿々〆ー\d])/g, '$1');
-  return m ? m[1] + ' ' + body : body;
-}
-function junkRatio(s){ return ((s.match(RE.junk) || []).length) / Math.max(1, s.length); }
-
-function applyOcr(text, useCompact){
-  if (useCompact === undefined) useCompact = true;   // 字間に空白が入る出力向け
-  const lines = text.split(/\r?\n/)
-    .map(l => useCompact ? compact(l) : l.replace(/[\s　]+/g, ' ').trim())
-    .filter(Boolean);
-  const used = new Set();
-  const set = (id, v) => { if (v && !$('#'+id).value) $('#'+id).value = v; };
-
-  // メール（行をまたいでつながらないよう1行ずつ見る）
-  for (const l of lines){
-    const cleaned = l.replace(/^(E-?mail|Mail|MAIL|メール|Ｅメール)[:：]?\s*/i, '');
-    const m = cleaned.match(RE.email) || cleaned.replace(/[\s　]/g,'').match(RE.email);
-    if (m){ set('f-email', m[0]); break; }
-  }
-
-  // 電話（FAX単独行は飛ばす／TEL・携帯の行を優先）
-  let tel = '';
-  for (const l of lines){
-    if (/FAX|Fax/.test(l) && !/TEL|Tel|電話|携帯|Phone|Mobile/i.test(l)) continue;
-    // 国際表記(+81 / +1…)は途中で切ると別番号になるので先に丸ごと取る
-    const m = l.match(RE.telIntl) || l.match(RE.tel);
-    if (m){ tel = m[0].trim(); if (/TEL|Tel|電話|携帯|Phone|Mobile/i.test(l)) break; }
-  }
-  set('f-tel', tel);
-
-  // 住所（〒がT・干などに化けるので補正してからつなぐ）
-  const addrParts = [];
-  lines.forEach((l, i) => {
-    const fixed = l.replace(/^[T干丁Ｔ〒]?\s*(\d{3})\s*[-‐−ー－]?\s*(\d{4})/, '〒$1-$2');
-    if ((/^〒/.test(fixed) || RE.addr.test(fixed)) && !RE.email.test(fixed) && !RE.url.test(fixed)){
-      addrParts.push(fixed); used.add(i);
-    }
-  });
-  set('f-address', tidyAddress(addrParts.join(' ')));
-
-  // 会社名（日本語の社名を優先し、無ければ英語表記）
-  let jpCorp = -1, enCorp = -1;
-  lines.forEach((l, i) => {
-    if (used.has(i) || RE.url.test(l) || l.length > 40 || !RE.corp.test(l)) return;
-    if (RE.cjk.test(l)){ if (jpCorp < 0) jpCorp = i; } else if (enCorp < 0) enCorp = i;
-  });
-  const corpIdx = jpCorp >= 0 ? jpCorp : enCorp;
-  if (corpIdx >= 0){ set('f-company', lines[corpIdx]); used.add(corpIdx); }
-
-  // 役職
-  lines.forEach((l, i) => {
-    if (!used.has(i) && RE.post.test(l) && l.length <= 24 && !RE.corp.test(l) && !$('#f-title').value){
-      $('#f-title').value = l; used.add(i);
-    }
-  });
-
-  // 氏名：残った行から、日本語だけ・記号なし・2〜10文字の候補を点数付けして選ぶ
-  const cand = [];
-  lines.forEach((l, i) => {
-    if (used.has(i)) return;
-    const s = stripEdgeJunk(l);
-    if (!s || /[\d@]/.test(s)) return;
-    if (RE.kana2.test(s) || junkRatio(s) > 0.12) return;
-    const jp = (s.match(/[぀-ヿ一-鿿々〆ー]/g) || []).length;
-    if (jp / s.replace(/[\s　]/g,'').length < 0.9) return;
-    const len = s.replace(/[\s　]/g,'').length;
-    if (len < 2 || len > 10) return;
-    const kanji = (s.match(/[一-鿿々]/g) || []).length;
-    let score = kanji / len;
-    if (len >= 3 && len <= 6) score += 0.3;
-    if (i === 0) score -= 0.15;             // 最上部はロゴのことが多いので少しだけ下げる
-    cand.push({ s, score });
-  });
-  cand.sort((a, b) => b.score - a.score);
-  if (cand.length) set('f-name', cand[0].s);
 }
 
 /* ============================================================
