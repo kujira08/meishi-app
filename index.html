@@ -68,6 +68,25 @@ button{cursor:pointer}
 .chip.active{background:var(--shu);border-color:var(--shu);color:#fff;font-weight:500}
 
 /* ---------- list ---------- */
+.listbar{
+  display:flex;align-items:center;gap:10px;padding:12px 16px 0;
+}
+.listbar #hits{flex:1;font-family:var(--mono);font-size:11.5px;color:var(--sumi-faint)}
+.listbar select{
+  padding:7px 10px;min-height:36px;font-size:12.5px;color:var(--sumi);
+  background:var(--paper);border:1px solid var(--border);border-radius:var(--radius-sm);
+}
+.backup-nudge{
+  display:flex;align-items:center;gap:9px;margin:12px 16px 0;padding:11px 12px;
+  background:var(--shu-pale);border:1px solid var(--shu);border-radius:var(--radius-sm);
+  font-size:12.5px;color:var(--shu);line-height:1.6;
+}
+.backup-nudge span{flex:1}
+.backup-nudge button{
+  border:none;background:var(--shu);color:#fff;border-radius:var(--radius-sm);
+  padding:8px 12px;min-height:36px;font-size:12.5px;font-weight:500;
+}
+.backup-nudge #nudge-close{background:none;color:var(--shu);font-size:17px;padding:6px 4px;min-width:32px}
 .list{padding:14px 16px 96px}
 .card-item{
   position:relative;background:var(--paper);border:1px solid var(--border);
@@ -224,6 +243,7 @@ button{cursor:pointer}
 
 /* ---------- detail ---------- */
 .hero{background:var(--indigo-deep);color:#fff;padding:22px 20px 26px}
+.hero .kana{font-size:12px;color:#8FAEC3;margin:0 0 3px;letter-spacing:.08em}
 .hero .nm{font-family:var(--display);font-size:26px;line-height:1.3;margin:0}
 .hero .ttl{font-size:13px;color:#A9C3D4;margin:6px 0 0}
 .hero .cmp{font-size:15px;margin:10px 0 0;font-weight:500}
@@ -246,6 +266,21 @@ button{cursor:pointer}
 .detail-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:3px}
 
 /* ---------- sheet ---------- */
+.toast{
+  position:fixed;left:50%;transform:translateX(-50%);
+  bottom:calc(78px + env(safe-area-inset-bottom));z-index:55;
+  width:min(calc(var(--col) - 32px),calc(100% - 32px));
+  display:flex;align-items:center;gap:10px;
+  padding:12px 14px;border-radius:var(--radius);
+  background:var(--indigo-deep);color:#fff;font-size:13.5px;
+  box-shadow:0 8px 22px rgba(21,47,69,.32);
+}
+.toast span{flex:1}
+.toast button{
+  border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.12);
+  color:#fff;border-radius:999px;padding:8px 14px;min-height:38px;font-size:13px;font-weight:500;
+}
+.toast button:active{background:rgba(255,255,255,.24)}
 .sheet-bg{
   position:fixed;inset:0;z-index:60;background:rgba(21,47,69,.42);
   display:flex;align-items:flex-end;justify-content:center;
@@ -280,9 +315,23 @@ button{cursor:pointer}
       <span class="hdr-count" id="count">0 件</span>
       <button class="icon-btn" id="btn-sheet" aria-label="データの管理" style="width:36px;height:36px;font-size:17px">⋯</button>
     </div>
-    <input class="search" id="search" type="search" placeholder="名前・会社・展示会で検索" autocomplete="off">
+    <input class="search" id="search" type="search" placeholder="名前・ふりがな・会社・タグで検索" autocomplete="off">
     <div class="chips" id="chips"></div>
   </header>
+  <div class="listbar">
+    <span id="hits"></span>
+    <select id="sort" aria-label="並べ替え">
+      <option value="new">新しい順</option>
+      <option value="old">古い順</option>
+      <option value="name">氏名順</option>
+      <option value="company">会社名順</option>
+    </select>
+  </div>
+  <div class="backup-nudge" id="nudge" hidden>
+    <span id="nudge-msg"></span>
+    <button id="nudge-go">書き出す</button>
+    <button id="nudge-close" aria-label="閉じる">×</button>
+  </div>
   <div class="list" id="list"></div>
   <button class="fab" id="fab">＋ 名刺を撮影</button>
 </section>
@@ -329,8 +378,9 @@ button{cursor:pointer}
           <input id="f-name" type="text" placeholder="大川原 誠人">
           <p class="hint err" id="name-hint" hidden>氏名を入力してください。</p>
         </div>
-        <div class="fg"><label for="f-title">役職</label><input id="f-title" type="text" placeholder="代表取締役"></div>
+        <div class="fg"><label for="f-kana">ふりがな</label><input id="f-kana" type="text" placeholder="おおかわら まさと"><p class="hint">かなでも検索できるようになります</p></div>
         <div class="fg"><label for="f-company">会社名</label><input id="f-company" type="text" placeholder="株式会社〇〇"></div>
+        <div class="fg"><label for="f-title">部署・役職</label><input id="f-title" type="text" placeholder="営業部 課長"></div>
         <div class="fg"><label for="f-tel">電話</label><input id="f-tel" type="tel" placeholder="087-000-0000"></div>
         <div class="fg"><label for="f-email">メール</label><input id="f-email" type="email" placeholder="info@example.jp" autocapitalize="off"></div>
         <div class="fg"><label for="f-address">住所</label><textarea id="f-address" placeholder="香川県高松市…" style="min-height:64px"></textarea></div>
@@ -346,7 +396,8 @@ button{cursor:pointer}
         </div>
         <div class="fg">
           <label for="f-tags">タグ</label>
-          <input id="f-tags" type="text" placeholder="のれん, 見積り依頼（カンマ区切り）">
+          <input id="f-tags" type="text" placeholder="のれん, 見積り依頼（カンマ区切り）" list="tag-list">
+          <datalist id="tag-list"></datalist>
         </div>
       </div>
 
@@ -382,6 +433,7 @@ button{cursor:pointer}
     <h2>名刺の詳細</h2>
   </header>
   <div class="hero">
+    <p class="kana" id="d-kana"></p>
     <p class="nm" id="d-name"></p>
     <p class="ttl" id="d-title"></p>
     <p class="cmp" id="d-company"></p>
@@ -396,6 +448,11 @@ button{cursor:pointer}
     <button class="btn-primary" id="btn-done" hidden>対応済みにする</button>
   </div>
 </section>
+
+<div class="toast" id="toast" hidden>
+  <span id="toast-msg"></span>
+  <button id="toast-act">＋ 次を撮る</button>
+</div>
 
 <!-- ============ データ管理シート ============ -->
 <div class="sheet-bg" id="sheet-bg" hidden>
@@ -424,6 +481,7 @@ const store = {
 let cards = store.load();
 let filter = 'all';
 let keyword = '';
+let sortBy = 'new';
 let editingId = null;
 let currentId = null;
 
@@ -492,6 +550,36 @@ function norm(s){
     .replace(/[\s　・･\-‐‑–—−ー－_.,、。（）()]/g, '');
 }
 
+function allTags(){
+  return [...new Set(cards.flatMap(c => c.tags || []).map(t => t.trim()).filter(Boolean))].sort();
+}
+function sorter_(a, b){
+  const t = x => new Date(x.createdAt || 0).getTime();
+  if (sortBy === 'old') return t(a) - t(b);
+  // ふりがながあれば五十音順になる。無ければ氏名で比較
+  if (sortBy === 'name') return norm(a.kana || a.name).localeCompare(norm(b.kana || b.name), 'ja');
+  if (sortBy === 'company') return norm(a.company||'～').localeCompare(norm(b.company||'～'), 'ja');
+  return t(b) - t(a);
+}
+
+// バックアップの督促：未書き出しが10件たまるか、前回から14日経ったら出す
+const EXPORT_KEY = 'meishi_last_export';
+function updateNudge(){
+  const n = $('#nudge');
+  if (n.dataset.closed === '1' || !cards.length){ n.hidden = true; return; }
+  let last = null;
+  try { last = JSON.parse(localStorage.getItem(EXPORT_KEY) || 'null'); } catch(e){}
+  const since = last ? cards.filter(c => new Date(c.createdAt||0) > new Date(last.at)).length : cards.length;
+  const days = last ? Math.floor((Date.now() - new Date(last.at)) / 86400000) : null;
+  let msg = '';
+  if (since >= 10) msg = '書き出していない名刺が' + since + '件あります。端末から消えると戻せません。';
+  else if (days !== null && days >= 14 && since > 0) msg = '前回の書き出しから' + days + '日経ちました。';
+  else if (last === null && cards.length >= 3) msg = 'まだ一度も書き出していません。念のため保存しておきませんか。';
+  if (!msg){ n.hidden = true; return; }
+  $('#nudge-msg').textContent = msg;
+  n.hidden = false;
+}
+
 function exhibitions(){
   return [...new Set(cards.map(c => (c.exhibition||'').trim()).filter(Boolean))];
 }
@@ -506,15 +594,21 @@ function matches(c){
   if (filter === 'follow' && !(c.followup && !c.followupDone)) return false;
   if (filter.startsWith('ex:') && (c.exhibition||'') !== filter.slice(3)) return false;
   if (keyword){
-    const hay = norm([c.name,c.company,c.title,c.exhibition,(c.tags||[]).join(' '),c.memo,c.nextAction,c.url].join(' '));
-    if (!hay.includes(norm(keyword))) return false;
+    const hay = norm([c.name,c.kana,c.company,c.title,c.exhibition,
+                      (c.tags||[]).join(' '),c.memo,c.nextAction,c.url,c.address].join(' '));
+    // スペース区切りは全部を含むもの（AND）
+    const words = keyword.split(/[\s　]+/).map(norm).filter(Boolean);
+    if (!words.every(w => hay.includes(w))) return false;
   }
   return true;
 }
 function renderList(){
   renderChips();
   $('#count').textContent = cards.length + ' 件';
-  const view = cards.filter(matches);
+  const view = cards.filter(matches).sort(sorter_);
+  $('#hits').textContent = (keyword || filter !== 'all') ? view.length + ' 件を表示' : '';
+  $('#tag-list').innerHTML = allTags().map(t => `<option value="${esc(t)}">`).join('');
+  updateNudge();
   const el = $('#list');
   if (!cards.length){
     el.innerHTML = `<div class="empty"><span class="empty-icon">📇</span>
@@ -543,6 +637,9 @@ $('#chips').addEventListener('click', e => {
   const b = e.target.closest('.chip'); if (!b) return;
   filter = b.dataset.k; renderList();
 });
+$('#sort').addEventListener('change', e => { sortBy = e.target.value; renderList(); });
+$('#nudge-close').addEventListener('click', () => { $('#nudge').dataset.closed = '1'; $('#nudge').hidden = true; });
+$('#nudge-go').addEventListener('click', () => { openSheet(); $('#btn-export').click(); });
 $('#search').addEventListener('input', e => { keyword = e.target.value.trim(); renderList(); });
 $('#list').addEventListener('click', e => {
   const c = e.target.closest('.card-item'); if (!c) return;
@@ -553,7 +650,7 @@ $('#list').addEventListener('click', e => {
    フォーム
    ============================================================ */
 function resetForm(){
-  ['f-name','f-title','f-company','f-tel','f-email','f-address','f-url','f-exhibition','f-tags','f-memo','f-next','f-followdate']
+  ['f-name','f-kana','f-title','f-company','f-tel','f-email','f-address','f-url','f-exhibition','f-tags','f-memo','f-next','f-followdate']
     .forEach(id => $('#'+id).value = '');
   $('#f-name').classList.remove('invalid');
   $('#name-hint').hidden = true;
@@ -592,6 +689,7 @@ function paintForm(id, manual){
     if (!c){ render({v:'list'}); return; }
     $('#form-title').textContent = '名刺を編集';
     $('#f-name').value = c.name || ''; $('#f-title').value = c.title || '';
+    $('#f-kana').value = c.kana || '';
     $('#f-company').value = c.company || ''; $('#f-tel').value = c.tel || '';
     $('#f-email').value = c.email || ''; $('#f-address').value = c.address || '';
     $('#f-url').value = c.url || '';
@@ -639,6 +737,7 @@ $('#btn-save').addEventListener('click', () => {
   const on = $('#f-follow').classList.contains('on');
   const data = {
     id: editingId, name,
+    kana: $('#f-kana').value.trim(),
     title: $('#f-title').value.trim(),
     company: $('#f-company').value.trim(),
     tel: $('#f-tel').value.trim(),
@@ -658,6 +757,7 @@ $('#btn-save').addEventListener('click', () => {
   renderList();
   history.replaceState({v:'detail', id}, '');
   render({v:'detail', id});
+  showToast('保存しました');
 });
 $('#btn-delete').addEventListener('click', () => {
   if (!editingId) return;
@@ -947,6 +1047,7 @@ function fillFields(f){
   if (!f) return;
   const put = (id, v) => { if (v && !$('#'+id).value) $('#'+id).value = String(v).trim(); };
   put('f-name', f.name);
+  put('f-kana', f.kana);
   put('f-title', [f.department, f.title].filter(Boolean).join(' '));
   put('f-company', f.company);
   put('f-tel', f.tel || f.mobile);
@@ -956,7 +1057,6 @@ function fillFields(f){
   const extra = [];
   if (f.fax) extra.push('FAX ' + f.fax);
   if (f.mobile && f.tel) extra.push('携帯 ' + f.mobile);
-  if (f.kana) extra.push('よみ: ' + f.kana);
   if (extra.length && !$('#f-memo').value) $('#f-memo').value = extra.join('\n');
 }
 
@@ -968,6 +1068,7 @@ function paintDetail(id){
   const c = getCard(id); if (!c) return;
   currentId = id;
   $('#d-name').textContent = c.name;
+  $('#d-kana').textContent = c.kana || ''; $('#d-kana').hidden = !c.kana;
   $('#d-title').textContent = c.title || ''; $('#d-title').hidden = !c.title;
   $('#d-company').textContent = c.company || ''; $('#d-company').hidden = !c.company;
 
@@ -976,7 +1077,8 @@ function paintDetail(id){
   const rows = [];
   if (c.tel) rows.push(row(ICON.tel,'電話',`<a href="tel:${esc(c.tel.replace(/[^\d+]/g,''))}">${esc(c.tel)}</a>`));
   if (c.email) rows.push(row(ICON.email,'メール',`<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>`));
-  if (c.address) rows.push(row(ICON.address,'住所',esc(c.address),'addr'));
+  if (c.address) rows.push(row(ICON.address,'住所',
+    `<a href="https://maps.apple.com/?q=${encodeURIComponent(c.address)}" target="_blank" rel="noopener">${esc(c.address)}</a>`,'addr'));
   if (c.url) rows.push(row(ICON.url,'ウェブサイト',`<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.url)}</a>`,'addr'));
   if (c.exhibition) rows.push(row(ICON.exhibition,'展示会',`<div class="detail-tags"><span class="tag exhibition">${esc(c.exhibition)}</span></div>`));
   if (c.tags && c.tags.length) rows.push(row(ICON.tags,'タグ',`<div class="detail-tags">${c.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>`));
@@ -1004,6 +1106,19 @@ $('#btn-done').addEventListener('click', () => {
   renderList(); paintDetail(currentId);
 });
 
+let toastTimer = null;
+function showToast(msg){
+  $('#toast-msg').textContent = msg;
+  $('#toast').hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 6000);
+}
+$('#toast-act').addEventListener('click', () => {
+  $('#toast').hidden = true;
+  go({v:'form', id:null});
+  setTimeout(() => $('#file').click(), 250);   // すぐカメラを開く
+});
+
 /* ============================================================
    バックアップ（書き出し／読み込み）
    ============================================================ */
@@ -1026,6 +1141,8 @@ $('#btn-export').addEventListener('click', () => {
   a.href = URL.createObjectURL(blob);
   a.download = '名刺バックアップ_' + stamp + '.json';
   document.body.appendChild(a); a.click(); a.remove();
+  try { localStorage.setItem(EXPORT_KEY, JSON.stringify({at: new Date().toISOString(), count: cards.length})); } catch(e){}
+  $('#nudge').hidden = true;
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 });
 $('#btn-import').addEventListener('click', () => $('#import-file').click());
