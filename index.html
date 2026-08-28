@@ -263,6 +263,11 @@ button{cursor:pointer}
 .fu-block .dt{font-family:var(--mono);font-size:12.5px;color:var(--sumi-soft);margin:5px 0 0}
 .fu-block.done{border-color:var(--indigo-mid);background:var(--indigo-pale)}
 .fu-block.done .st{color:var(--indigo)}
+.sns-pick{display:inline-flex;gap:6px;margin-left:8px;vertical-align:middle}
+.sns-pick a{
+  font-size:11px;padding:3px 9px;border-radius:999px;text-decoration:none;
+  background:var(--indigo-pale);color:var(--indigo);border:1px solid var(--indigo-mid);
+}
 .detail-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:3px}
 
 /* ---------- sheet ---------- */
@@ -1105,6 +1110,15 @@ function snsHtml_(text){
       for (const [re, base] of SNS_BASE){
         if (re.test(line)) return `<a href="${esc(base + h[1])}" target="_blank" rel="noopener">${esc(line)}</a>`;
       }
+    }
+    // サービスが分からないIDは、推測でリンクにせず開き先を選ばせる
+    const bare = line.match(/^(?:SNS)?\s*[:：]?\s*@?([A-Za-z0-9._-]{2,})$/i);
+    if (bare && !/LINE/i.test(line)){
+      const id = bare[1];
+      return esc(line) + ' <span class="sns-pick">'
+        + `<a href="https://www.instagram.com/${esc(id)}" target="_blank" rel="noopener">Instagram</a>`
+        + `<a href="https://x.com/${esc(id)}" target="_blank" rel="noopener">X</a>`
+        + '</span>';
     }
     return esc(line);            // LINE IDなど、リンクにできないものは文字のまま
   }).join('<br>');
