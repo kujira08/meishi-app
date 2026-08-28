@@ -255,6 +255,12 @@ button{cursor:pointer}
 .row-val{font-size:15px;margin-top:1px}
 .row-val.addr{word-break:break-all}
 .row-val a{color:var(--indigo);text-decoration:none;border-bottom:1px solid var(--indigo-pale)}
+.mail-btn{
+  display:block;width:100%;margin-top:16px;padding:14px;min-height:50px;
+  background:var(--paper);border:1px solid var(--indigo-mid);border-radius:var(--radius-sm);
+  color:var(--indigo-deep);font-size:14.5px;font-weight:500;
+}
+.mail-btn:active{background:var(--indigo-pale)}
 .block{margin-top:18px;padding:14px 15px;background:var(--paper);border:1px solid var(--border);border-radius:var(--radius)}
 .block h3{font-family:var(--display);font-size:13.5px;letter-spacing:.08em;color:var(--indigo-deep);margin:0 0 8px}
 .block p{margin:0;font-size:14px;line-height:1.85;white-space:pre-wrap}
@@ -446,6 +452,7 @@ button{cursor:pointer}
   </div>
   <div class="detail-wrap">
     <div id="d-rows"></div>
+    <button class="mail-btn" id="btn-mail" type="button" hidden>✉ お礼メールを書く</button>
     <div id="d-follow"></div>
     <div id="d-memo"></div>
   </div>
@@ -519,6 +526,20 @@ function saveCard(data){
   }
   persistSafe();
   return data.id;
+}
+// 氏名一致、またはメール一致を重複とみなす
+function findDuplicate(d){
+  const n = norm(d.name), em = (d.email || '').toLowerCase();
+  return cards.find(c => {
+    if (c.id === d.id) return false;
+    if (em && (c.email || '').toLowerCase() === em) return true;
+    if (n && norm(c.name) === n){
+      // 同姓同名の別人を弾くため、会社名が両方あって違うときは別人扱い
+      if (d.company && c.company && norm(c.company) !== norm(d.company)) return false;
+      return true;
+    }
+    return false;
+  }) || null;
 }
 function deleteCard(id){ cards = cards.filter(c => c.id !== id); persistSafe(); }
 function getCard(id){ return cards.find(c => c.id === id); }
@@ -762,6 +783,23 @@ $('#btn-save').addEventListener('click', () => {
     image: pendingImage || ''
   };
   if (!on) data.followupDone = false;
+  // 同じ人が既に登録されていないか（展示会で毎年会う相手など）
+  if (!editingId){
+    const dup = findDuplicate(data);
+    if (dup){
+      const when = dup.createdAt ? new Date(dup.createdAt).toLocaleDateString('ja-JP') : '登録日不明';
+      const where = dup.exhibition ? '／' + dup.exhibition : '';
+      if (!confirm('同じ方が既に登録されています。\n\n'
+          + dup.name + (dup.company ? '（' + dup.company + '）' : '') + '\n'
+          + when + where + '\n\n'
+          + '「キャンセル」を押すと前回の登録を開きます。\n新しく登録しますか？')){
+        render({v:'detail', id:dup.id});
+        history.replaceState({v:'detail', id:dup.id}, '');
+        return;
+      }
+    }
+  }
+
   const id = saveCard(data);
   renderList();
   history.replaceState({v:'detail', id}, '');
@@ -1156,11 +1194,45 @@ function paintDetail(id){
     $('#d-follow').innerHTML = '';
     $('#btn-done').hidden = true;
   }
+  $('#btn-mail').hidden = !c.email;
+
   let m = '';
   if (c.memo) m += `<div class="block"><h3>商談メモ</h3><p>${esc(c.memo)}</p></div>`;
   if (c.nextAction) m += `<div class="block"><h3>次回アクション</h3><p>${esc(c.nextAction)}</p></div>`;
   $('#d-memo').innerHTML = m;
 }
+// 会社の文体（お世話になります → 用件 → どうぞよろしくお願いいたします）で下書きを作る
+function mailDraft(c){
+  const jp = /[぀-ヿ一-鿿]/.test((c.name||'') + (c.company||''));
+  const place = c.exhibition ? c.exhibition + 'にて' : '';
+  if (jp){
+    const to = [c.company, (c.name || '') + ' 様'].filter(Boolean).join('\n');
+    return {
+      subject: '先日はありがとうございました（大川原染色本舗）',
+      body: to + '\n\n' +
+        '　お世話になります。\n' +
+        '先日は' + place + 'お時間をいただき、ありがとうございました。\n\n' +
+        '\n\n' +
+        'どうぞよろしくお願いいたします。\n\n' +
+        '大川原染色本舗\n大川原\n'
+    };
+  }
+  return {
+    subject: 'Thank you for your time - Okawahara Senshoku',
+    body: 'Dear ' + (c.name || '') + ',\n\n' +
+      'Thank you for taking the time to speak with us' +
+      (c.exhibition ? ' at ' + c.exhibition : '') + '.\n\n' +
+      '\n\n' +
+      'Best regards,\n\nOkawahara Senshoku Honpo\n'
+  };
+}
+$('#btn-mail').addEventListener('click', () => {
+  const c = getCard(currentId); if (!c || !c.email) return;
+  const d = mailDraft(c);
+  location.href = 'mailto:' + encodeURIComponent(c.email)
+    + '?subject=' + encodeURIComponent(d.subject)
+    + '&body=' + encodeURIComponent(d.body);
+});
 $('#btn-edit').addEventListener('click', () => go({v:'form', id:currentId}));
 $('#btn-done').addEventListener('click', () => {
   const c = getCard(currentId); if (!c) return;
