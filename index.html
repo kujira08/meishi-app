@@ -8,6 +8,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <meta name="apple-mobile-web-app-title" content="名刺帖">
+<meta name="app-version" content="20260828-1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -473,10 +474,11 @@ button{cursor:pointer}
     <h3>データの管理</h3>
     <p class="note">この名刺データは<b>この端末のブラウザの中だけ</b>に保存されています。<br>
       履歴の削除や機種変更で消えるので、ときどき書き出してください。<br>
-      現在 <b id="sheet-count">0</b> 件 ／ <b id="sheet-size">0</b> KB</p>
+      現在 <b id="sheet-count">0</b> 件 ／ <b id="sheet-size">0</b> KB ／ 版 <b id="sheet-ver"></b></p>
     <button class="sheet-item" id="btn-export">バックアップを書き出す<small>JSONファイルとして保存します</small></button>
     <button class="sheet-item" id="btn-import">バックアップを読み込む<small>今のデータに追加・上書きします</small></button>
     <button class="sheet-item" id="btn-passcode">合言葉を入れ直す<small>読み取りで「合言葉が違います」と出るとき</small></button>
+    <button class="sheet-item" id="btn-update">更新を確認する<small>アプリを消して入れ直す必要はありません</small></button>
     <button class="btn" id="sheet-close" style="width:100%;margin-top:6px">閉じる</button>
   </div>
 </div>
@@ -1241,16 +1243,44 @@ $('#btn-done').addEventListener('click', () => {
 });
 
 let toastTimer = null;
-function showToast(msg){
+let toastAction = null;
+function showToast(msg, label, fn, keep){
   $('#toast-msg').textContent = msg;
+  $('#toast-act').textContent = label || '＋ 次を撮る';
+  toastAction = fn || (() => { go({v:'form', id:null}); setTimeout(() => $('#file').click(), 250); });
   $('#toast').hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 6000);
+  if (!keep) toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 6000);
 }
 $('#toast-act').addEventListener('click', () => {
   $('#toast').hidden = true;
-  go({v:'form', id:null});
-  setTimeout(() => $('#file').click(), 250);   // すぐカメラを開く
+  if (toastAction) toastAction();
+});
+
+/* ============================================================
+   更新の確認（アプリを消して入れ直す必要をなくす）
+   ============================================================ */
+const APP_VERSION = '20260828-1';
+async function checkUpdate(silent){
+  try {
+    const res = await fetch('index.html?_=' + Date.now(), {cache:'no-store'});
+    const t = await res.text();
+    const m = t.match(/name="app-version" content="([^"]+)"/);
+    if (m && m[1] !== APP_VERSION){
+      showToast('新しい版があります（' + m[1] + '）', '更新する',
+        () => location.replace(location.pathname + '?v=' + m[1]), true);
+      return true;
+    }
+    if (!silent) alert('最新版です（' + APP_VERSION + '）');
+    return false;
+  } catch(e){
+    if (!silent) alert('更新を確認できませんでした。電波の状況をご確認ください。');
+    return false;
+  }
+}
+setTimeout(() => checkUpdate(true), 1500);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) checkUpdate(true);      // 画面に戻ったときも確認する
 });
 
 /* ============================================================
@@ -1259,6 +1289,7 @@ $('#toast-act').addEventListener('click', () => {
 const sheet = $('#sheet-bg');
 function openSheet(){
   $('#sheet-count').textContent = cards.length;
+  $('#sheet-ver').textContent = APP_VERSION;
   $('#sheet-size').textContent = Math.round(new Blob([JSON.stringify(cards)]).size / 1024);
   sheet.hidden = false;
 }
@@ -1280,6 +1311,10 @@ $('#btn-export').addEventListener('click', () => {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 });
 $('#btn-import').addEventListener('click', () => $('#import-file').click());
+$('#btn-update').addEventListener('click', async () => {
+  sheet.hidden = true;
+  await checkUpdate(false);
+});
 $('#btn-passcode').addEventListener('click', () => {
   forgetPasscode();
   const p = getPasscode();                     // 入力を促す
