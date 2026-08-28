@@ -385,6 +385,7 @@ button{cursor:pointer}
         <div class="fg"><label for="f-email">メール</label><input id="f-email" type="email" placeholder="info@example.jp" autocapitalize="off"></div>
         <div class="fg"><label for="f-address">住所</label><textarea id="f-address" placeholder="香川県高松市…" style="min-height:64px"></textarea></div>
         <div class="fg"><label for="f-url">ウェブサイト</label><input id="f-url" type="url" placeholder="https://…" autocapitalize="off"></div>
+        <div class="fg"><label for="f-sns">SNS</label><textarea id="f-sns" placeholder="Instagram: @example&#10;LINE: example-id" style="min-height:64px" autocapitalize="off"></textarea></div>
       </div>
 
       <div class="sec">
@@ -596,7 +597,7 @@ function matches(c){
   if (filter.startsWith('ex:') && (c.exhibition||'') !== filter.slice(3)) return false;
   if (keyword){
     const hay = norm([c.name,c.kana,c.company,c.title,c.exhibition,
-                      (c.tags||[]).join(' '),c.memo,c.nextAction,c.url,c.address].join(' '));
+                      (c.tags||[]).join(' '),c.memo,c.nextAction,c.url,c.address,c.sns].join(' '));
     // スペース区切りは全部を含むもの（AND）
     const words = keyword.split(/[\s　]+/).map(norm).filter(Boolean);
     if (!words.every(w => hay.includes(w))) return false;
@@ -651,7 +652,7 @@ $('#list').addEventListener('click', e => {
    フォーム
    ============================================================ */
 function resetForm(){
-  ['f-name','f-kana','f-title','f-company','f-tel','f-email','f-address','f-url','f-exhibition','f-tags','f-memo','f-next','f-followdate']
+  ['f-name','f-kana','f-title','f-company','f-tel','f-email','f-address','f-url','f-sns','f-exhibition','f-tags','f-memo','f-next','f-followdate']
     .forEach(id => $('#'+id).value = '');
   $('#f-name').classList.remove('invalid');
   $('#name-hint').hidden = true;
@@ -694,6 +695,7 @@ function paintForm(id, manual){
     $('#f-company').value = c.company || ''; $('#f-tel').value = c.tel || '';
     $('#f-email').value = c.email || ''; $('#f-address').value = c.address || '';
     $('#f-url').value = c.url || '';
+    $('#f-sns').value = c.sns || '';
     $('#f-exhibition').value = c.exhibition || ''; $('#f-tags').value = (c.tags||[]).join(', ');
     $('#f-memo').value = c.memo || ''; $('#f-next').value = c.nextAction || '';
     setFollow(!!c.followup); $('#f-followdate').value = c.followupDate || '';
@@ -745,6 +747,7 @@ $('#btn-save').addEventListener('click', () => {
     email: $('#f-email').value.trim(),
     address: $('#f-address').value.trim(),
     url: $('#f-url').value.trim(),
+    sns: $('#f-sns').value.trim(),
     exhibition: $('#f-exhibition').value.trim(),
     tags: $('#f-tags').value.split(/[,、]/).map(t => t.trim()).filter(Boolean),
     memo: $('#f-memo').value.trim(),
@@ -838,7 +841,16 @@ function parseQr(text){
   const t = text.trim();
   if (/^BEGIN:VCARD/i.test(t)) return parseVcard_(t);
   if (/^MECARD:/i.test(t))     return parseMecard_(t);
-  if (/^https?:\/\//i.test(t)) return { url: t };
+  if (/^https?:\/\//i.test(t)){
+    // QRがSNSのリンクなら sns 欄に入れる（会社サイトと混ざらないように）
+    const m = t.match(/(instagram|twitter|x\.com|facebook|linkedin|threads|tiktok|line\.me|lin\.ee)/i);
+    if (m){
+      const name = {instagram:'Instagram','twitter':'X','x.com':'X',facebook:'Facebook',
+                    linkedin:'LinkedIn',threads:'Threads',tiktok:'TikTok','line.me':'LINE','lin.ee':'LINE'}[m[1].toLowerCase()] || 'SNS';
+      return { sns: name + ': ' + t };
+    }
+    return { url: t };
+  }
   if (/^mailto:/i.test(t))     return { email: t.replace(/^mailto:/i, '') };
   if (/^tel:/i.test(t))        return { tel: t.replace(/^tel:/i, '') };
   return null;
@@ -1065,6 +1077,7 @@ function fillFields(f){
   put('f-email', f.email);
   put('f-address', f.address);
   put('f-url', f.url);
+  put('f-sns', f.sns);
   const extra = [];
   if (f.fax) extra.push('FAX ' + f.fax);
   if (f.mobile && f.tel) extra.push('携帯 ' + f.mobile);
@@ -1074,7 +1087,30 @@ function fillFields(f){
 /* ============================================================
    詳細
    ============================================================ */
-const ICON = { tel:'☎', email:'✉', address:'⌂', url:'⌖', exhibition:'▣', tags:'◆' };
+// SNS欄は1行ずつ。URLやIDからサービスを推測してリンクにする（分からなければ文字のまま）
+const SNS_BASE = [
+  [/insta/i,             'https://www.instagram.com/'],
+  [/(^|[^a-z])(x|twitter)([^a-z]|$)/i, 'https://x.com/'],
+  [/facebook|(^|[^a-z])fb([^a-z]|$)/i, 'https://www.facebook.com/'],
+  [/linkedin/i,          'https://www.linkedin.com/in/'],
+  [/threads/i,           'https://www.threads.net/@'],
+  [/tiktok/i,            'https://www.tiktok.com/@']
+];
+function snsHtml_(text){
+  return String(text).split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(line => {
+    const u = line.match(/https?:\/\/\S+/);
+    if (u) return `<a href="${esc(u[0])}" target="_blank" rel="noopener">${esc(line)}</a>`;
+    const h = line.match(/@?([A-Za-z0-9._-]{2,})\s*$/);
+    if (h){
+      for (const [re, base] of SNS_BASE){
+        if (re.test(line)) return `<a href="${esc(base + h[1])}" target="_blank" rel="noopener">${esc(line)}</a>`;
+      }
+    }
+    return esc(line);            // LINE IDなど、リンクにできないものは文字のまま
+  }).join('<br>');
+}
+
+const ICON = { tel:'☎', email:'✉', address:'⌂', url:'⌖', sns:'✳', exhibition:'▣', tags:'◆' };
 function paintDetail(id){
   const c = getCard(id); if (!c) return;
   currentId = id;
@@ -1091,6 +1127,7 @@ function paintDetail(id){
   if (c.address) rows.push(row(ICON.address,'住所',
     `<a href="https://maps.apple.com/?q=${encodeURIComponent(c.address)}" target="_blank" rel="noopener">${esc(c.address)}</a>`,'addr'));
   if (c.url) rows.push(row(ICON.url,'ウェブサイト',`<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.url)}</a>`,'addr'));
+  if (c.sns) rows.push(row(ICON.sns,'SNS', snsHtml_(c.sns), 'addr'));
   if (c.exhibition) rows.push(row(ICON.exhibition,'展示会',`<div class="detail-tags"><span class="tag exhibition">${esc(c.exhibition)}</span></div>`));
   if (c.tags && c.tags.length) rows.push(row(ICON.tags,'タグ',`<div class="detail-tags">${c.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>`));
   $('#d-rows').innerHTML = rows.join('');
