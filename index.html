@@ -463,6 +463,7 @@ button{cursor:pointer}
       現在 <b id="sheet-count">0</b> 件 ／ <b id="sheet-size">0</b> KB</p>
     <button class="sheet-item" id="btn-export">バックアップを書き出す<small>JSONファイルとして保存します</small></button>
     <button class="sheet-item" id="btn-import">バックアップを読み込む<small>今のデータに追加・上書きします</small></button>
+    <button class="sheet-item" id="btn-passcode">合言葉を入れ直す<small>読み取りで「合言葉が違います」と出るとき</small></button>
     <button class="btn" id="sheet-close" style="width:100%;margin-top:6px">閉じる</button>
   </div>
 </div>
@@ -902,11 +903,14 @@ function parseMecard_(t){
 const API_URL = 'https://script.google.com/macros/s/AKfycbyAKMCDG-98LtOLeoxmbwlWr4UrekI3auKxbOT0-WhMSPSKxJGfPOvK_srkSF4hkzGJ3w/exec';
 const PASS_KEY = 'meishi_passcode';
 
+function forgetPasscode(){
+  try { localStorage.removeItem(PASS_KEY); } catch(e){}
+}
 function getPasscode(){
   let p = '';
   try { p = localStorage.getItem(PASS_KEY) || ''; } catch(e){}
   if (!p){
-    p = (window.prompt('初回だけ合言葉を入力してください') || '').trim();
+    p = (window.prompt('合言葉を入力してください（初回のみ・端末に記憶されます）') || '').trim();
     if (p){ try { localStorage.setItem(PASS_KEY, p); } catch(e){} }
   }
   return p;
@@ -1003,7 +1007,7 @@ $('#add-back').addEventListener('click', () => {
 });
 
 // ためた画像をまとめてGAS経由でClaudeに送る
-async function runExtraction(){
+async function runExtraction(retried){
   if (!shots.length) return;
   const bar = $('#ocr-bar');
   const passcode = getPasscode();
@@ -1033,11 +1037,18 @@ async function runExtraction(){
     $('#ocr-spin').hidden = true;
     $('#ocr-msg').textContent = '読み取りました。内容を確認してください。';
   } catch(err){
+    const msg = String(err.message || err);
+    // 合言葉違いは覚え直せば直る。記憶を消してその場で聞き、1回だけやり直す
+    if (msg.indexOf('合言葉') >= 0 && !retried){
+      forgetPasscode();
+      $('#ocr-msg').textContent = '合言葉が違いました。入力し直してください。';
+      if (getPasscode()){ return runExtraction(true); }
+    }
     if (qrAll) fillFields(qrAll);                              // 読み取り失敗でもQR分は入れる
     bar.classList.add('error');
     $('#ocr-spin').hidden = true;
-    $('#ocr-msg').textContent = String(err.message || err)
-      + (qrAll ? '（QRの分だけ入力しました）' : '（手入力か、⌨️の読み取りをお使いください）');
+    $('#ocr-msg').textContent = msg
+      + (qrAll ? '（QRの分だけ入力しました）' : '（手入力で登録できます）');
   }
   $('#fields').hidden = false;
 }
@@ -1146,6 +1157,12 @@ $('#btn-export').addEventListener('click', () => {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 });
 $('#btn-import').addEventListener('click', () => $('#import-file').click());
+$('#btn-passcode').addEventListener('click', () => {
+  forgetPasscode();
+  const p = getPasscode();                     // 入力を促す
+  alert(p ? '合言葉を保存しました。もう一度撮影してみてください。' : '合言葉を消しました。次の撮影時に聞かれます。');
+  sheet.hidden = true;
+});
 $('#import-file').addEventListener('change', e => {
   const f = e.target.files && e.target.files[0];
   if (!f) return;
