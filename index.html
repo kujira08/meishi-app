@@ -4,11 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#152F45">
-<title>名刺帖｜大川原染色本舗</title>
+<title>名刺管理</title>
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
-<meta name="apple-mobile-web-app-title" content="名刺帖">
-<meta name="app-version" content="20260828-3">
+<meta name="apple-mobile-web-app-title" content="名刺管理">
+<meta name="app-version" content="20260828-4">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -45,11 +45,9 @@ button{cursor:pointer}
 /* ---------- header ---------- */
 .hdr{position:sticky;top:0;z-index:30;background:var(--indigo-deep);color:#fff;padding:14px 16px 10px}
 .hdr-top{display:flex;align-items:center;gap:10px}
-.hanko{
-  width:34px;height:34px;flex:0 0 34px;border-radius:50%;
-  border:2px solid var(--shu);color:#E8877A;
-  display:flex;align-items:center;justify-content:center;
-  font-family:var(--display);font-size:17px;line-height:1;padding-bottom:1px;
+.logo{
+  width:38px;height:25px;flex:0 0 38px;display:block;
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.25));
 }
 .hdr-title{font-family:var(--display);font-size:19px;letter-spacing:.06em;margin:0;flex:1}
 .hdr-count{font-family:var(--mono);font-size:12px;color:#9FBBCE;letter-spacing:.02em}
@@ -322,8 +320,14 @@ button{cursor:pointer}
 <section id="view-list" class="view active">
   <header class="hdr">
     <div class="hdr-top">
-      <div class="hanko" aria-hidden="true">染</div>
-      <h1 class="hdr-title">名刺帖</h1>
+      <svg class="logo" viewBox="0 0 64 42" aria-hidden="true">
+        <rect x="1" y="1" width="62" height="40" rx="6" fill="#FCFAF3"/>
+        <rect x="9" y="12" width="30" height="4" rx="2" fill="#96A8B6"/>
+        <rect x="9" y="21" width="22" height="3" rx="1.5" fill="#96A8B6"/>
+        <rect x="9" y="28" width="15" height="3" rx="1.5" fill="#96A8B6"/>
+        <circle cx="50" cy="28" r="7" fill="#B23A2E"/>
+      </svg>
+      <h1 class="hdr-title">名刺管理</h1>
       <span class="hdr-count" id="count">0 件</span>
       <button class="icon-btn" id="btn-sheet" aria-label="データの管理" style="width:36px;height:36px;font-size:17px">⋯</button>
     </div>
@@ -1260,7 +1264,7 @@ $('#toast-act').addEventListener('click', () => {
 /* ============================================================
    更新の確認（アプリを消して入れ直す必要をなくす）
    ============================================================ */
-const APP_VERSION = '20260828-3';
+const APP_VERSION = '20260828-4';
 async function checkUpdate(silent){
   try {
     const res = await fetch('index.html?_=' + Date.now(), {cache:'no-store'});
