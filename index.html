@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <meta name="apple-mobile-web-app-title" content="名刺管理">
-<meta name="app-version" content="20260828-4">
+<meta name="app-version" content="20260829-1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -698,6 +698,7 @@ function resetForm(){
   $('#side-choice').hidden = true;
   $('#sides-note').hidden = true;
   shots = [];
+  shotBmps = [];
   qrAll = null;
   $('#attach-photo').hidden = true;
   pendingImage = '';
@@ -755,7 +756,7 @@ $('#form-back').addEventListener('click', () => history.back());
 $('#detail-back').addEventListener('click', () => history.back());
 $('#shot-box').addEventListener('click', () => $('#file').click());
 $('#retake').addEventListener('click', () => {
-  shots = []; qrAll = null;
+  shots = []; shotBmps = []; qrAll = null;
   $('#qr-note').hidden = true; $('#side-choice').hidden = true; $('#sides-note').hidden = true;
   $('#file').click();
 });
@@ -987,6 +988,7 @@ function toUpload(bmp){
 }
 
 let shots = [];      // 送る画像（表・裏）
+let shotBmps = [];   // 元画像（読み取り後にトリミングするため保持）
 let qrAll = null;    // 表裏から読めたQRの内容
 
 $('#file').addEventListener('change', async e => {
@@ -1031,6 +1033,7 @@ $('#file').addEventListener('change', async e => {
     $('#shot-area').hidden = true;
   }
   shots.push({ mime: 'image/jpeg', data: toUpload(bmp) });
+  shotBmps.push(bmp);
 
   // QRは表にも裏にもあり得るので、撮るたびに読む
   try {
@@ -1095,8 +1098,10 @@ async function runExtraction(retried){
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || '読み取りに失敗しました');
     fillFields(Object.assign({}, data.fields, qrAll || {}));   // QRの項目で上書き＝QR優先
+    const cropped = applyCrop(shotBmps[0], data.fields && data.fields.crop);
     $('#ocr-spin').hidden = true;
-    $('#ocr-msg').textContent = '読み取りました。内容を確認してください。';
+    $('#ocr-msg').textContent = '読み取りました。内容を確認してください。'
+      + (cropped ? '（名刺の部分を切り抜いて保存します）' : '');
   } catch(err){
     const msg = String(err.message || err);
     // 合言葉違いは覚え直せば直る。記憶を消してその場で聞き、1回だけやり直す
@@ -1112,6 +1117,31 @@ async function runExtraction(retried){
       + (qrAll ? '（QRの分だけ入力しました）' : '（手入力で登録できます）');
   }
   $('#fields').hidden = false;
+}
+
+// AIが返した「名刺の範囲」で切り抜いて保存画像を作り直す。
+// 切り落とすと台無しなので、返ってきた枠より4%だけ外側を取る（実測のズレは最大3.8%）
+const CROP_MARGIN = 4;
+function applyCrop(bmp, crop){
+  if (!bmp || !crop) return false;
+  const num = v => (typeof v === 'number' && isFinite(v)) ? v : null;
+  let l = num(crop.left), t = num(crop.top), r = num(crop.right), b = num(crop.bottom);
+  if (l === null || t === null || r === null || b === null) return false;
+  l -= CROP_MARGIN; t -= CROP_MARGIN; r += CROP_MARGIN; b += CROP_MARGIN;
+  l = Math.max(0, l); t = Math.max(0, t); r = Math.min(100, r); b = Math.min(100, b);
+  const w = r - l, h = b - t;
+  if (w < 15 || h < 10) return false;                 // 小さすぎる＝誤検出とみなす
+  if (w > 99 && h > 99) return false;                 // 画像いっぱい＝切る意味がない
+  const px = Math.round(bmp.width  * l / 100), py = Math.round(bmp.height * t / 100);
+  const pw = Math.round(bmp.width  * w / 100), ph = Math.round(bmp.height * h / 100);
+  const scale = Math.min(1, 1000 / Math.max(pw, ph));
+  const c = document.createElement('canvas');
+  c.width  = Math.max(1, Math.round(pw * scale));
+  c.height = Math.max(1, Math.round(ph * scale));
+  c.getContext('2d').drawImage(bmp, px, py, pw, ph, 0, 0, c.width, c.height);
+  pendingImage = c.toDataURL('image/jpeg', 0.62);
+  $('#preview').src = pendingImage;
+  return true;
 }
 
 // APIが返した項目をフォームに入れる
@@ -1264,7 +1294,7 @@ $('#toast-act').addEventListener('click', () => {
 /* ============================================================
    更新の確認（アプリを消して入れ直す必要をなくす）
    ============================================================ */
-const APP_VERSION = '20260828-4';
+const APP_VERSION = '20260829-1';
 async function checkUpdate(silent){
   try {
     const res = await fetch('index.html?_=' + Date.now(), {cache:'no-store'});
