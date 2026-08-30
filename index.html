@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <meta name="apple-mobile-web-app-title" content="名刺管理">
-<meta name="app-version" content="20260829-3">
+<meta name="app-version" content="20260829-4">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -372,7 +372,7 @@ button{cursor:pointer}
       <button class="shot" id="shot-box" type="button">
         <span class="shot-icon" aria-hidden="true">📷</span>
         <strong>名刺を撮影する</strong>
-        <span class="sub">撮るだけで項目が埋まります</span>
+        <span class="sub">カメラが開かなければタップしてください</span>
       </button>
       <button class="manual-link" id="manual-btn" type="button">写真なしで手入力する</button>
     </div>
@@ -757,7 +757,10 @@ function paintForm(id, manual){
     $('#btn-delete').hidden = true;
   }
 }
-$('#fab').addEventListener('click', () => go({v:'form', id:null}));
+$('#fab').addEventListener('click', () => {
+  go({v:'form', id:null});
+  $('#file').click();          // 同じタップの流れで開く（間を空けるとiOSに止められる）
+});
 $('#attach-photo').addEventListener('click', () => { skipOcr = true; $('#file').click(); });
 $('#manual-btn').addEventListener('click', () => {
   $('#fields').hidden = false;
@@ -1390,7 +1393,7 @@ let toastAction = null;
 function showToast(msg, label, fn, keep){
   $('#toast-msg').textContent = msg;
   $('#toast-act').textContent = label || '＋ 次を撮る';
-  toastAction = fn || (() => { go({v:'form', id:null}); setTimeout(() => $('#file').click(), 250); });
+  toastAction = fn || (() => { go({v:'form', id:null}); $('#file').click(); });
   $('#toast').hidden = false;
   clearTimeout(toastTimer);
   if (!keep) toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 6000);
@@ -1403,7 +1406,7 @@ $('#toast-act').addEventListener('click', () => {
 /* ============================================================
    更新の確認（アプリを消して入れ直す必要をなくす）
    ============================================================ */
-const APP_VERSION = '20260829-3';
+const APP_VERSION = '20260829-4';
 async function checkUpdate(silent){
   try {
     const res = await fetch('index.html?_=' + Date.now(), {cache:'no-store'});
