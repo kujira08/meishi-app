@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <meta name="apple-mobile-web-app-title" content="名刺管理">
-<meta name="app-version" content="20260829-6">
+<meta name="app-version" content="20260830-1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -1115,7 +1115,7 @@ async function runExtraction(retried){
     fillFields(Object.assign({}, data.fields, qrAll || {}));   // QRの項目で上書き＝QR優先
     const f0 = data.fields || {};
     lastFix = '';
-    applyWarp(shotBmps[0], f0.corners) || applyCrop(shotBmps[0], f0.crop);
+    applyWarp(shotBmps[0], f0.corners) || applyCrop(shotBmps[0], f0.crop, f0.corners);
     $('#ocr-spin').hidden = true;
     $('#ocr-msg').textContent = '読み取りました。内容を確認してください。'
       + (lastFix ? '［' + lastFix + '］' : '［補正なし］');
@@ -1249,11 +1249,21 @@ function applyWarp(bmp, corners){
 // 切り落とすと台無しなので、返ってきた枠より4%だけ外側を取る（実測のズレは最大3.8%）
 const CROP_MARGIN = 4;
 let lastFix = '';        // 直近の補正結果（原因調査用に表示する）
-function applyCrop(bmp, crop){
-  if (!bmp || !crop) return false;
+function applyCrop(bmp, crop, corners){
+  if (!bmp) return false;
   const num = v => (typeof v === 'number' && isFinite(v)) ? v : null;
-  let l = num(crop.left), t = num(crop.top), r = num(crop.right), b = num(crop.bottom);
-  if (l === null || t === null || r === null || b === null) return false;
+  let l = crop ? num(crop.left) : null, t = crop ? num(crop.top) : null;
+  let r = crop ? num(crop.right) : null, b = crop ? num(crop.bottom) : null;
+  // 実測で crop が 0,0,0,0 で返ることがあった。壊れていたら四隅から枠を作る
+  if (l === null || t === null || r === null || b === null || r - l < 5 || b - t < 5){
+    const ks = ['tl','tr','br','bl'];
+    if (corners && ks.every(k => corners[k] && isFinite(corners[k].x) && isFinite(corners[k].y))){
+      const xs = ks.map(k => corners[k].x), ys = ks.map(k => corners[k].y);
+      l = Math.min.apply(null, xs); r = Math.max.apply(null, xs);
+      t = Math.min.apply(null, ys); b = Math.max.apply(null, ys);
+      lastFix = (lastFix ? lastFix + ' / ' : '') + '枠は四隅から算出';
+    } else { lastFix = (lastFix ? lastFix + ' / ' : '') + '枠が不正'; return false; }
+  }
   l -= CROP_MARGIN; t -= CROP_MARGIN; r += CROP_MARGIN; b += CROP_MARGIN;
   l = Math.max(0, l); t = Math.max(0, t); r = Math.min(100, r); b = Math.min(100, b);
   const w = r - l, h = b - t;
@@ -1429,7 +1439,7 @@ $('#toast-act').addEventListener('click', () => {
 /* ============================================================
    更新の確認（アプリを消して入れ直す必要をなくす）
    ============================================================ */
-const APP_VERSION = '20260829-6';
+const APP_VERSION = '20260830-1';
 async function checkUpdate(silent){
   try {
     const res = await fetch('index.html?_=' + Date.now(), {cache:'no-store'});
