@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <meta name="apple-mobile-web-app-title" content="名刺管理">
-<meta name="app-version" content="20260830-3">
+<meta name="app-version" content="20260830-4">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -246,8 +246,16 @@ button{cursor:pointer}
 .hero .nm{font-family:var(--display);font-size:26px;line-height:1.3;margin:0}
 .hero .ttl{font-size:13px;color:#A9C3D4;margin:6px 0 0}
 .hero .cmp{font-size:15px;margin:10px 0 0;font-weight:500}
+.photo-box{position:relative;margin-bottom:6px}
+.flip-btn{
+  position:absolute;right:10px;bottom:10px;
+  padding:8px 14px;min-height:38px;border-radius:999px;border:none;
+  background:rgba(21,47,69,.86);color:#fff;font-size:12.5px;font-weight:500;
+  box-shadow:0 2px 8px rgba(0,0,0,.25);
+}
+.flip-btn:active{background:rgba(21,47,69,.98)}
 .card-photo{
-  width:100%;display:block;margin:0 0 6px;border-radius:var(--radius);
+  width:100%;display:block;border-radius:var(--radius);
   border:1px solid var(--border);background:var(--paper);
 }
 .photo-zoom{
@@ -465,7 +473,10 @@ button{cursor:pointer}
     <p class="cmp" id="d-company"></p>
   </div>
   <div class="detail-wrap">
-    <img class="card-photo" id="d-photo" alt="名刺" hidden>
+    <div class="photo-box" id="d-photo-box" hidden>
+      <img class="card-photo" id="d-photo" alt="名刺">
+      <button class="flip-btn" id="d-flip" type="button" hidden>裏を見る</button>
+    </div>
     <div id="d-rows"></div>
     <button class="mail-btn" id="btn-mail" type="button" hidden>✉ お礼メールを書く</button>
     <div id="d-follow"></div>
@@ -521,6 +532,9 @@ function persistSafe(){
   try { store.persist(cards); return true; }
   catch(e){
     // 容量オーバー：古い順に画像を捨てて再挑戦
+    // まず裏面を捨てる（表より情報が少ないため）
+    cards.forEach(c => { if (c.imageBack) delete c.imageBack; });
+    try { store.persist(cards); alert('保存容量がいっぱいのため、裏面の画像を削除しました。'); return true; } catch(e0){}
     const withImg = cards.filter(c => c.image);
     for (let i = withImg.length - 1; i >= 0; i--){
       delete withImg[i].image;
@@ -714,6 +728,7 @@ function resetForm(){
   qrAll = null;
   $('#attach-photo').hidden = true;
   pendingImage = '';
+  pendingBack = '';
   skipOcr = false;
 }
 function setFollow(on){
@@ -724,7 +739,8 @@ function setFollow(on){
 }
 $('#f-follow').addEventListener('click', () => setFollow(!$('#f-follow').classList.contains('on')));
 
-let pendingImage = '';   // 保存する圧縮済み dataURL
+let pendingImage = '';   // 保存する画像（表）
+let pendingBack  = '';   // 保存する画像（裏）
 let skipOcr = false;     // 「写真も残す」から選んだときは文字認識をしない
 
 function paintForm(id, manual){
@@ -744,6 +760,7 @@ function paintForm(id, manual){
     $('#f-exhibition').value = c.exhibition || ''; $('#f-tags').value = (c.tags||[]).join(', ');
     $('#f-memo').value = c.memo || ''; $('#f-next').value = c.nextAction || '';
     setFollow(!!c.followup); $('#f-followdate').value = c.followupDate || '';
+    pendingBack = c.imageBack || '';
     if (c.image){
       pendingImage = c.image;
       $('#preview').src = c.image;
@@ -802,7 +819,8 @@ $('#btn-save').addEventListener('click', () => {
     nextAction: $('#f-next').value.trim(),
     followup: on,
     followupDate: on ? $('#f-followdate').value : '',
-    image: pendingImage || ''
+    image: pendingImage || '',
+    imageBack: pendingBack || ''
   };
   if (!on) data.followupDone = false;
   // 同じ人が既に登録されていないか（展示会で毎年会う相手など）
@@ -1115,7 +1133,13 @@ async function runExtraction(retried){
     fillFields(Object.assign({}, data.fields, qrAll || {}));   // QRの項目で上書き＝QR優先
     const f0 = data.fields || {};
     lastFix = '';
-    applyWarp(shotBmps[0], f0.corners) || applyCrop(shotBmps[0], f0.crop, f0.corners);
+    const front = warpToDataUrl_(shotBmps[0], f0.corners) || cropToDataUrl_(shotBmps[0], f0.crop, f0.corners);
+    if (front){ pendingImage = front; $('#preview').src = front; }
+    // 裏面も同じ処理で切り抜いて残す
+    if (shotBmps[1]){
+      const bk = hasCorners_(f0.corners_back) ? warpToDataUrl_(shotBmps[1], f0.corners_back) : null;
+      pendingBack = bk || toThumb(shotBmps[1]);
+    }
     $('#ocr-spin').hidden = true;
     $('#ocr-msg').textContent = '読み取りました。内容を確認してください。'
       + (lastFix ? '［' + lastFix + '］' : '［補正なし］');
@@ -1298,6 +1322,12 @@ function refineQuad_(src, sw, sh, pts){
   return out;
 }
 
+function hasCorners_(c){
+  const ks = ['tl','tr','br','bl'];
+  if (!c || !ks.every(k => c[k] && isFinite(c[k].x) && isFinite(c[k].y))) return false;
+  return ks.some(k => c[k].x !== 0 || c[k].y !== 0);   // 裏面が無いときは全て0で返る
+}
+
 // 名刺は 91×55mm（比1.655）が標準。検出結果がそこから大きく外れるときは、
 // 足りていない辺を伸ばして近づける。AIが名刺の内側を指して端が切れるのを補う
 const CARD_RATIO = 91 / 55;
@@ -1318,10 +1348,10 @@ function fitCardRatio_(p, W, H){
 }
 
 // 四隅をもらって保存画像を作り直す
-function applyWarp(bmp, corners){
-  if (!bmp || !corners) return false;
+function warpToDataUrl_(bmp, corners){
+  if (!bmp || !corners) return null;
   const keys = ['tl','tr','br','bl'];
-  if (!keys.every(k => corners[k] && isFinite(corners[k].x) && isFinite(corners[k].y))){ lastFix = '四隅なし'; return false; }
+  if (!keys.every(k => corners[k] && isFinite(corners[k].x) && isFinite(corners[k].y))){ lastFix = '四隅なし'; return null; }
 
   const work = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
   const sw = Math.round(bmp.width * work), sh = Math.round(bmp.height * work);
@@ -1347,30 +1377,28 @@ function applyWarp(bmp, corners){
   pts = fitCardRatio_(pts, W, H);            // 名刺の標準比に近づける（下端切れの対策）
   W = (dist(pts[0],pts[1]) + dist(pts[3],pts[2])) / 2;
   H = (dist(pts[0],pts[3]) + dist(pts[1],pts[2])) / 2;
-  if (!(W > 40 && H > 30)){ lastFix = '四隅が小さすぎ'; return false; }   // 誤検出
+  if (!(W > 40 && H > 30)){ lastFix = '四隅が小さすぎ'; return null; }   // 誤検出
   const ar = W / H;
-  if (ar < 0.3 || ar > 3.5){ lastFix = '形が不自然(比' + ar.toFixed(2) + ')'; return false; }
+  if (ar < 0.3 || ar > 3.5){ lastFix = '形が不自然(比' + ar.toFixed(2) + ')'; return null; }
   const s = Math.min(1, 1000 / Math.max(W, H));
   W = Math.max(1, Math.round(W * s)); H = Math.max(1, Math.round(H * s));
 
   // 四隅が「軸に平行な長方形」に丸められていないか（＝AIが枠しか見ていない兆候）
   const ang = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x) * 180 / Math.PI;
   const out = warpPixels_(src, sw, sh, pts, W, H);
-  if (!out){ lastFix = '台形補正できず'; return false; }
+  if (!out){ lastFix = '台形補正できず'; return null; }
   lastFix = (lastFix ? lastFix + '／' : '') + '台形補正 傾き' + ang.toFixed(1) + '°';
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   c.getContext('2d').putImageData(new ImageData(out, W, H), 0, 0);
-  pendingImage = c.toDataURL('image/jpeg', 0.68);
-  $('#preview').src = pendingImage;
-  return true;
+  return c.toDataURL('image/jpeg', 0.68);
 }
 
 // AIが返した「名刺の範囲」で切り抜いて保存画像を作り直す。
 // 切り落とすと台無しなので、返ってきた枠より4%だけ外側を取る（実測のズレは最大3.8%）
 const CROP_MARGIN = 4;
 let lastFix = '';        // 直近の補正結果（原因調査用に表示する）
-function applyCrop(bmp, crop, corners){
-  if (!bmp) return false;
+function cropToDataUrl_(bmp, crop, corners){
+  if (!bmp) return null;
   const num = v => (typeof v === 'number' && isFinite(v)) ? v : null;
   let l = crop ? num(crop.left) : null, t = crop ? num(crop.top) : null;
   let r = crop ? num(crop.right) : null, b = crop ? num(crop.bottom) : null;
@@ -1382,13 +1410,13 @@ function applyCrop(bmp, crop, corners){
       l = Math.min.apply(null, xs); r = Math.max.apply(null, xs);
       t = Math.min.apply(null, ys); b = Math.max.apply(null, ys);
       lastFix = (lastFix ? lastFix + ' / ' : '') + '枠は四隅から算出';
-    } else { lastFix = (lastFix ? lastFix + ' / ' : '') + '枠が不正'; return false; }
+    } else { lastFix = (lastFix ? lastFix + ' / ' : '') + '枠が不正'; return null; }
   }
   l -= CROP_MARGIN; t -= CROP_MARGIN; r += CROP_MARGIN; b += CROP_MARGIN;
   l = Math.max(0, l); t = Math.max(0, t); r = Math.min(100, r); b = Math.min(100, b);
   const w = r - l, h = b - t;
-  if (w < 15 || h < 10) return false;                 // 小さすぎる＝誤検出とみなす
-  if (w > 99 && h > 99) return false;                 // 画像いっぱい＝切る意味がない
+  if (w < 15 || h < 10) return null;                 // 小さすぎる＝誤検出とみなす
+  if (w > 99 && h > 99) return null;                 // 画像いっぱい＝切る意味がない
   const px = Math.round(bmp.width  * l / 100), py = Math.round(bmp.height * t / 100);
   const pw = Math.round(bmp.width  * w / 100), ph = Math.round(bmp.height * h / 100);
   const scale = Math.min(1, 1000 / Math.max(pw, ph));
@@ -1396,10 +1424,8 @@ function applyCrop(bmp, crop, corners){
   c.width  = Math.max(1, Math.round(pw * scale));
   c.height = Math.max(1, Math.round(ph * scale));
   c.getContext('2d').drawImage(bmp, px, py, pw, ph, 0, 0, c.width, c.height);
-  pendingImage = c.toDataURL('image/jpeg', 0.62);
-  $('#preview').src = pendingImage;
   lastFix = (lastFix ? lastFix + ' → ' : '') + '枠で切り抜き';
-  return true;
+  return c.toDataURL('image/jpeg', 0.62);
 }
 
 // APIが返した項目をフォームに入れる
@@ -1489,8 +1515,16 @@ function paintDetail(id){
     $('#btn-done').hidden = true;
   }
   $('#btn-mail').hidden = !c.email;
-  if (c.image){ $('#d-photo').src = c.image; $('#d-photo').hidden = false; }
-  else { $('#d-photo').removeAttribute('src'); $('#d-photo').hidden = true; }
+  if (c.image){
+    $('#d-photo').src = c.image;
+    $('#d-photo-box').hidden = false;
+    showingBack = false;
+    $('#d-flip').hidden = !c.imageBack;
+    $('#d-flip').textContent = '裏を見る';
+  } else {
+    $('#d-photo').removeAttribute('src');
+    $('#d-photo-box').hidden = true;
+  }
 
   let m = '';
   if (c.memo) m += `<div class="block"><h3>商談メモ</h3><p>${esc(c.memo)}</p></div>`;
@@ -1529,6 +1563,14 @@ $('#btn-mail').addEventListener('click', () => {
     + '?subject=' + encodeURIComponent(d.subject)
     + '&body=' + encodeURIComponent(d.body);
 });
+let showingBack = false;
+$('#d-flip').addEventListener('click', e => {
+  e.stopPropagation();                       // 拡大表示を開かない
+  const c = getCard(currentId); if (!c || !c.imageBack) return;
+  showingBack = !showingBack;
+  $('#d-photo').src = showingBack ? c.imageBack : c.image;
+  $('#d-flip').textContent = showingBack ? '表を見る' : '裏を見る';
+});
 $('#d-photo').addEventListener('click', () => {
   const src = $('#d-photo').getAttribute('src'); if (!src) return;
   $('#zoom-img').src = src; $('#photo-zoom').hidden = false;
@@ -1559,7 +1601,7 @@ $('#toast-act').addEventListener('click', () => {
 /* ============================================================
    更新の確認（アプリを消して入れ直す必要をなくす）
    ============================================================ */
-const APP_VERSION = '20260830-3';
+const APP_VERSION = '20260830-4';
 async function checkUpdate(silent){
   try {
     const res = await fetch('index.html?_=' + Date.now(), {cache:'no-store'});
