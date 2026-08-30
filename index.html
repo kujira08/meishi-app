@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <meta name="apple-mobile-web-app-title" content="名刺管理">
-<meta name="app-version" content="20260830-1">
+<meta name="app-version" content="20260830-2">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -1206,6 +1206,25 @@ function orderQuad_(p){
   return best;
 }
 
+// 名刺は 91×55mm（比1.655）が標準。検出結果がそこから大きく外れるときは、
+// 足りていない辺を伸ばして近づける。AIが名刺の内側を指して端が切れるのを補う
+const CARD_RATIO = 91 / 55;
+function fitCardRatio_(p, W, H){
+  const target = (W >= H) ? CARD_RATIO : 1 / CARD_RATIO;
+  const cur = W / H;
+  let fw = 1, fh = 1;
+  if (cur > target * 1.06)      fh = Math.min(1.25, cur / target);   // 横長すぎ＝縦が足りない
+  else if (cur < target / 1.06) fw = Math.min(1.25, target / cur);   // 縦長すぎ＝横が足りない
+  if (fw === 1 && fh === 1) return p;
+  const mid = (a,b) => ({x:(a.x+b.x)/2, y:(a.y+b.y)/2});
+  const mT = mid(p[0],p[1]), mB = mid(p[3],p[2]), mL = mid(p[0],p[3]), mR = mid(p[1],p[2]);
+  const unit = (a,b,len) => ({x:(b.x-a.x)/len, y:(b.y-a.y)/len});
+  const uh = unit(mT, mB, H || 1), uw = unit(mL, mR, W || 1);
+  const gh = (fh - 1) * H / 2, gw = (fw - 1) * W / 2;
+  const mv = (q, sh_, sw_) => ({ x: q.x + uh.x*sh_ + uw.x*sw_, y: q.y + uh.y*sh_ + uw.y*sw_ });
+  return [ mv(p[0], -gh, -gw), mv(p[1], -gh, +gw), mv(p[2], +gh, +gw), mv(p[3], +gh, -gw) ];
+}
+
 // 四隅をもらって保存画像を作り直す
 function applyWarp(bmp, corners){
   if (!bmp || !corners) return false;
@@ -1222,11 +1241,15 @@ function applyWarp(bmp, corners){
   let pts = keys.map(k => ({ x: corners[k].x / 100 * sw, y: corners[k].y / 100 * sh }));
   pts = orderQuad_(pts);        // AIの角のラベルを信用せず、幾何的に並べ直す
   const cx = pts.reduce((a,p) => a + p.x, 0) / 4, cy = pts.reduce((a,p) => a + p.y, 0) / 4;
-  pts = pts.map(p => ({ x: cx + (p.x - cx) * 1.02, y: cy + (p.y - cy) * 1.02 }));  // 端を切らないよう2%外へ
+  // AIの四隅は名刺の内側に寄る傾向がある（実写で確認）。切り落とすより余白を残す
+  pts = pts.map(p => ({ x: cx + (p.x - cx) * 1.04, y: cy + (p.y - cy) * 1.04 }));
 
   const dist = (a,b) => Math.hypot(a.x - b.x, a.y - b.y);
   let W = (dist(pts[0],pts[1]) + dist(pts[3],pts[2])) / 2;
   let H = (dist(pts[0],pts[3]) + dist(pts[1],pts[2])) / 2;
+  pts = fitCardRatio_(pts, W, H);            // 名刺の標準比に近づける（下端切れの対策）
+  W = (dist(pts[0],pts[1]) + dist(pts[3],pts[2])) / 2;
+  H = (dist(pts[0],pts[3]) + dist(pts[1],pts[2])) / 2;
   if (!(W > 40 && H > 30)){ lastFix = '四隅が小さすぎ'; return false; }   // 誤検出
   const ar = W / H;
   if (ar < 0.3 || ar > 3.5){ lastFix = '形が不自然(比' + ar.toFixed(2) + ')'; return false; }
@@ -1439,7 +1462,7 @@ $('#toast-act').addEventListener('click', () => {
 /* ============================================================
    更新の確認（アプリを消して入れ直す必要をなくす）
    ============================================================ */
-const APP_VERSION = '20260830-1';
+const APP_VERSION = '20260830-2';
 async function checkUpdate(silent){
   try {
     const res = await fetch('index.html?_=' + Date.now(), {cache:'no-store'});
