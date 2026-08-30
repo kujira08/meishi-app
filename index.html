@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <meta name="apple-mobile-web-app-title" content="名刺管理">
-<meta name="app-version" content="20260829-1">
+<meta name="app-version" content="20260829-2">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -1098,10 +1098,11 @@ async function runExtraction(retried){
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || '読み取りに失敗しました');
     fillFields(Object.assign({}, data.fields, qrAll || {}));   // QRの項目で上書き＝QR優先
-    const cropped = applyCrop(shotBmps[0], data.fields && data.fields.crop);
+    const f0 = data.fields || {};
+    const cropped = applyWarp(shotBmps[0], f0.corners) || applyCrop(shotBmps[0], f0.crop);
     $('#ocr-spin').hidden = true;
     $('#ocr-msg').textContent = '読み取りました。内容を確認してください。'
-      + (cropped ? '（名刺の部分を切り抜いて保存します）' : '');
+      + (cropped ? '（名刺の部分だけを保存します）' : '');
   } catch(err){
     const msg = String(err.message || err);
     // 合言葉違いは覚え直せば直る。記憶を消してその場で聞き、1回だけやり直す
@@ -1117,6 +1118,95 @@ async function runExtraction(retried){
       + (qrAll ? '（QRの分だけ入力しました）' : '（手入力で登録できます）');
   }
   $('#fields').hidden = false;
+}
+
+/* ============================================================
+   台形補正（傾いた名刺をまっすぐな長方形に直す）
+   四隅は読み取りと同じリクエストでAIが返す。処理は端末内なので費用ゼロ
+   ============================================================ */
+// 出力の四隅 → 元画像の四隅 への射影変換を解く（8元1次連立方程式）
+function solveHomography_(dst, src){
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++){
+    const {x:u, y:v} = dst[i], {x, y} = src[i];
+    A.push([u, v, 1, 0, 0, 0, -u*x, -v*x]); b.push(x);
+    A.push([0, 0, 0, u, v, 1, -u*y, -v*y]); b.push(y);
+  }
+  for (let c = 0; c < 8; c++){                       // ガウスの消去法
+    let piv = c;
+    for (let r = c + 1; r < 8; r++) if (Math.abs(A[r][c]) > Math.abs(A[piv][c])) piv = r;
+    if (Math.abs(A[piv][c]) < 1e-9) return null;     // 解けない＝四隅が潰れている
+    [A[c], A[piv]] = [A[piv], A[c]]; [b[c], b[piv]] = [b[piv], b[c]];
+    for (let r = 0; r < 8; r++){
+      if (r === c) continue;
+      const f = A[r][c] / A[c][c];
+      for (let k = c; k < 8; k++) A[r][k] -= f * A[c][k];
+      b[r] -= f * b[c];
+    }
+  }
+  return b.map((v, i) => v / A[i][i]);
+}
+
+// 画素を書き換える本体。DOMに依存しないので単体で検証できる
+function warpPixels_(src, sw, sh, pts, W, H){
+  const h = solveHomography_(
+    [{x:0,y:0},{x:W,y:0},{x:W,y:H},{x:0,y:H}], pts);
+  if (!h) return null;
+  const out = new Uint8ClampedArray(W * H * 4);
+  for (let v = 0; v < H; v++){
+    for (let u = 0; u < W; u++){
+      const d = h[6]*u + h[7]*v + 1;
+      const x = (h[0]*u + h[1]*v + h[2]) / d;
+      const y = (h[3]*u + h[4]*v + h[5]) / d;
+      const o = (v * W + u) * 4;
+      if (x < 0 || y < 0 || x > sw - 1 || y > sh - 1){ out[o]=out[o+1]=out[o+2]=255; out[o+3]=255; continue; }
+      const x0 = x | 0, y0 = y | 0;
+      const x1 = Math.min(x0 + 1, sw - 1), y1 = Math.min(y0 + 1, sh - 1);
+      const fx = x - x0, fy = y - y0;
+      for (let ch = 0; ch < 3; ch++){                // 双一次補間でなめらかに
+        const p00 = src[(y0*sw + x0)*4 + ch], p10 = src[(y0*sw + x1)*4 + ch];
+        const p01 = src[(y1*sw + x0)*4 + ch], p11 = src[(y1*sw + x1)*4 + ch];
+        out[o + ch] = (p00*(1-fx) + p10*fx)*(1-fy) + (p01*(1-fx) + p11*fx)*fy;
+      }
+      out[o + 3] = 255;
+    }
+  }
+  return out;
+}
+
+// 四隅をもらって保存画像を作り直す
+function applyWarp(bmp, corners){
+  if (!bmp || !corners) return false;
+  const keys = ['tl','tr','br','bl'];
+  if (!keys.every(k => corners[k] && isFinite(corners[k].x) && isFinite(corners[k].y))) return false;
+
+  const work = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+  const sw = Math.round(bmp.width * work), sh = Math.round(bmp.height * work);
+  const sc = document.createElement('canvas'); sc.width = sw; sc.height = sh;
+  const sg = sc.getContext('2d', {willReadFrequently:true});
+  sg.drawImage(bmp, 0, 0, sw, sh);
+  const src = sg.getImageData(0, 0, sw, sh).data;
+
+  let pts = keys.map(k => ({ x: corners[k].x / 100 * sw, y: corners[k].y / 100 * sh }));
+  const cx = pts.reduce((a,p) => a + p.x, 0) / 4, cy = pts.reduce((a,p) => a + p.y, 0) / 4;
+  pts = pts.map(p => ({ x: cx + (p.x - cx) * 1.02, y: cy + (p.y - cy) * 1.02 }));  // 端を切らないよう2%外へ
+
+  const dist = (a,b) => Math.hypot(a.x - b.x, a.y - b.y);
+  let W = (dist(pts[0],pts[1]) + dist(pts[3],pts[2])) / 2;
+  let H = (dist(pts[0],pts[3]) + dist(pts[1],pts[2])) / 2;
+  if (!(W > 40 && H > 30)) return false;                      // 小さすぎ＝誤検出
+  const ar = W / H;
+  if (ar < 0.3 || ar > 3.5) return false;                     // 名刺としてありえない形
+  const s = Math.min(1, 1000 / Math.max(W, H));
+  W = Math.max(1, Math.round(W * s)); H = Math.max(1, Math.round(H * s));
+
+  const out = warpPixels_(src, sw, sh, pts, W, H);
+  if (!out) return false;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  c.getContext('2d').putImageData(new ImageData(out, W, H), 0, 0);
+  pendingImage = c.toDataURL('image/jpeg', 0.68);
+  $('#preview').src = pendingImage;
+  return true;
 }
 
 // AIが返した「名刺の範囲」で切り抜いて保存画像を作り直す。
@@ -1294,7 +1384,7 @@ $('#toast-act').addEventListener('click', () => {
 /* ============================================================
    更新の確認（アプリを消して入れ直す必要をなくす）
    ============================================================ */
-const APP_VERSION = '20260829-1';
+const APP_VERSION = '20260829-2';
 async function checkUpdate(silent){
   try {
     const res = await fetch('index.html?_=' + Date.now(), {cache:'no-store'});
