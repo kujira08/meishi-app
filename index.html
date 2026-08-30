@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <meta name="apple-mobile-web-app-title" content="名刺管理">
-<meta name="app-version" content="20260829-5">
+<meta name="app-version" content="20260829-6">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -1190,6 +1190,22 @@ function warpPixels_(src, sw, sh, pts, W, H){
   return out;
 }
 
+// AIは角のラベル（左上・右上…）を取り違えることがある。
+// 重心まわりの並び順に直したうえで、いちばん回転量が少なくなる向きを選ぶ
+// （これをしないと、名刺が90度回ったり歪んだ形に変換されてしまう）
+function orderQuad_(p){
+  const cx = (p[0].x+p[1].x+p[2].x+p[3].x)/4, cy = (p[0].y+p[1].y+p[2].y+p[3].y)/4;
+  const cyc = p.slice().sort((a,b) => Math.atan2(a.y-cy,a.x-cx) - Math.atan2(b.y-cy,b.x-cx));
+  let best = null, bestScore = Infinity;
+  for (let i = 0; i < 4; i++){
+    const q = [cyc[i], cyc[(i+1)%4], cyc[(i+2)%4], cyc[(i+3)%4]];
+    const ang = Math.atan2(q[1].y - q[0].y, q[1].x - q[0].x) * 180 / Math.PI;  // 上辺の傾き
+    const score = Math.abs(ang);          // 回転量がいちばん小さい並びを採用する
+    if (score < bestScore){ bestScore = score; best = q; }
+  }
+  return best;
+}
+
 // 四隅をもらって保存画像を作り直す
 function applyWarp(bmp, corners){
   if (!bmp || !corners) return false;
@@ -1204,6 +1220,7 @@ function applyWarp(bmp, corners){
   const src = sg.getImageData(0, 0, sw, sh).data;
 
   let pts = keys.map(k => ({ x: corners[k].x / 100 * sw, y: corners[k].y / 100 * sh }));
+  pts = orderQuad_(pts);        // AIの角のラベルを信用せず、幾何的に並べ直す
   const cx = pts.reduce((a,p) => a + p.x, 0) / 4, cy = pts.reduce((a,p) => a + p.y, 0) / 4;
   pts = pts.map(p => ({ x: cx + (p.x - cx) * 1.02, y: cy + (p.y - cy) * 1.02 }));  // 端を切らないよう2%外へ
 
@@ -1412,7 +1429,7 @@ $('#toast-act').addEventListener('click', () => {
 /* ============================================================
    更新の確認（アプリを消して入れ直す必要をなくす）
    ============================================================ */
-const APP_VERSION = '20260829-5';
+const APP_VERSION = '20260829-6';
 async function checkUpdate(silent){
   try {
     const res = await fetch('index.html?_=' + Date.now(), {cache:'no-store'});
