@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <meta name="apple-mobile-web-app-title" content="名刺管理">
-<meta name="app-version" content="20260830-4">
+<meta name="app-version" content="20260905-1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -528,17 +528,22 @@ let sortBy = 'new';
 let editingId = null;
 let currentId = null;
 
-function persistSafe(){
-  try { store.persist(cards); return true; }
+function persistSafe(nextCards){
+  // 保存候補だけを変更し、保存成功後に画面側のデータを確定する。
+  const candidate = nextCards.map(c => Object.assign({}, c));
+  function commit(){ store.persist(candidate); cards = candidate; }
+  try { commit(); return true; }
   catch(e){
-    // 容量オーバー：古い順に画像を捨てて再挑戦
-    // まず裏面を捨てる（表より情報が少ないため）
-    cards.forEach(c => { if (c.imageBack) delete c.imageBack; });
-    try { store.persist(cards); alert('保存容量がいっぱいのため、裏面の画像を削除しました。'); return true; } catch(e0){}
-    const withImg = cards.filter(c => c.image);
+    if (e.name !== 'QuotaExceededError' && e.name !== 'NS_ERROR_DOM_QUOTA_REACHED'){
+      alert('保存できませんでした。端末の保存設定を確認して、もう一度お試しください。');
+      return false;
+    }
+    candidate.forEach(c => { if (c.imageBack) delete c.imageBack; });
+    try { commit(); alert('保存容量がいっぱいのため、裏面の画像を削除しました。'); return true; } catch(e0){}
+    const withImg = candidate.filter(c => c.image);
     for (let i = withImg.length - 1; i >= 0; i--){
       delete withImg[i].image;
-      try { store.persist(cards); 
+      try { commit();
         alert('保存容量がいっぱいのため、古い名刺の画像を削除しました。\n文字のデータは残っています。バックアップの書き出しをおすすめします。');
         return true;
       } catch(e2){ /* 続けて捨てる */ }
@@ -548,16 +553,18 @@ function persistSafe(){
   }
 }
 function saveCard(data){
-  if (data.id){
-    const i = cards.findIndex(c => c.id === data.id);
-    if (i >= 0) cards[i] = Object.assign({}, cards[i], data);
+  const next = cards.slice();
+  const saved = Object.assign({}, data);
+  if (saved.id){
+    const i = next.findIndex(c => c.id === saved.id);
+    if (i < 0){ alert('保存する名刺が見つかりませんでした。'); return null; }
+    next[i] = Object.assign({}, next[i], saved);
   } else {
-    data.id = 'c' + Date.now() + Math.random().toString(36).slice(2,6);
-    data.createdAt = new Date().toISOString();
-    cards.unshift(data);
+    saved.id = 'c' + Date.now() + Math.random().toString(36).slice(2,6);
+    saved.createdAt = new Date().toISOString();
+    next.unshift(saved);
   }
-  persistSafe();
-  return data.id;
+  return persistSafe(next) ? saved.id : null;
 }
 // 氏名一致、またはメール一致を重複とみなす
 function findDuplicate(d){
@@ -573,7 +580,7 @@ function findDuplicate(d){
     return false;
   }) || null;
 }
-function deleteCard(id){ cards = cards.filter(c => c.id !== id); persistSafe(); }
+function deleteCard(id){ return persistSafe(cards.filter(c => c.id !== id)); }
 function getCard(id){ return cards.find(c => c.id === id); }
 
 /* ============================================================
@@ -841,6 +848,7 @@ $('#btn-save').addEventListener('click', () => {
   }
 
   const id = saveCard(data);
+  if (!id) return; // フォーム・画像を残して再試行できるようにする
   renderList();
   history.replaceState({v:'detail', id}, '');
   render({v:'detail', id});
@@ -849,7 +857,7 @@ $('#btn-save').addEventListener('click', () => {
 $('#btn-delete').addEventListener('click', () => {
   if (!editingId) return;
   if (!confirm('この名刺を削除します。よろしいですか？')) return;
-  deleteCard(editingId);
+  if (!deleteCard(editingId)) return;
   currentId = null; editingId = null;
   history.replaceState({v:'list'}, '');
   render({v:'list'});
@@ -1579,7 +1587,7 @@ $('#photo-zoom').addEventListener('click', () => { $('#photo-zoom').hidden = tru
 $('#btn-edit').addEventListener('click', () => go({v:'form', id:currentId}));
 $('#btn-done').addEventListener('click', () => {
   const c = getCard(currentId); if (!c) return;
-  c.followupDone = true; persistSafe();
+  if (!saveCard(Object.assign({}, c, { followupDone: true }))) return;
   renderList(); paintDetail(currentId);
 });
 
@@ -1601,7 +1609,7 @@ $('#toast-act').addEventListener('click', () => {
 /* ============================================================
    更新の確認（アプリを消して入れ直す必要をなくす）
    ============================================================ */
-const APP_VERSION = '20260830-4';
+const APP_VERSION = '20260905-1';
 async function checkUpdate(silent){
   try {
     const res = await fetch('index.html?_=' + Date.now(), {cache:'no-store'});
@@ -1676,15 +1684,16 @@ $('#import-file').addEventListener('change', e => {
       alert('このファイルは読み込めませんでした。書き出したJSONファイルを選んでください。');
       e.target.value = ''; return;
     }
+    const next = cards.slice();
     let add = 0, upd = 0;
     incoming.forEach(c => {
       if (!c || !c.name) return;
-      const i = cards.findIndex(x => x.id === c.id);
-      if (i >= 0){ cards[i] = Object.assign({}, cards[i], c); upd++; }
-      else { if (!c.id) c.id = 'c' + Date.now() + Math.random().toString(36).slice(2,6); cards.unshift(c); add++; }
+      const i = next.findIndex(x => x.id === c.id);
+      if (i >= 0){ next[i] = Object.assign({}, next[i], c); upd++; }
+      else { if (!c.id) c.id = 'c' + Date.now() + Math.random().toString(36).slice(2,6); next.unshift(c); add++; }
     });
     if (!add && !upd){ alert('読み込める名刺がありませんでした。'); e.target.value = ''; return; }
-    persistSafe();
+    if (!persistSafe(next)){ e.target.value = ''; return; }
     renderList(); openSheet();
     alert('読み込みました。\n新規 ' + add + ' 件 ／ 上書き ' + upd + ' 件');
     e.target.value = '';
